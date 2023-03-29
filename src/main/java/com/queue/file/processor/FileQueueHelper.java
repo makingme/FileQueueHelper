@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.queue.file.vo.FileQueueData;
 import org.apache.commons.lang3.StringUtils;
+import org.h2.mvstore.DataUtils;
+import org.h2.mvstore.FileStore;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
 import org.slf4j.Logger;
@@ -26,12 +28,24 @@ public class FileQueueHelper {
 	private final Gson gson = new Gson();
 	
 	private MVStore store = null;
+
+	private boolean autoCommitMode = false;
+
+	private boolean encryptMode = false;
+
+	private boolean readOnlyMode = false;
+
+	private boolean compressMode = false;
+
+	private boolean restoreMode = false;
+
 	private MVMap<Long, String> dataMap = null;
 	
 	private final List<Long> keyList = new ArrayList<Long>();
 	
 	private final AtomicLong atomicIndex = new AtomicLong(1);
-	
+
+	private final String QUEUE;
 	private final String QUEUE_PATH;
 	private final String QUEUE_NAME;
 	private final String ENCRYPT_KEY ="ENCRYPT_KEY";
@@ -49,38 +63,97 @@ public class FileQueueHelper {
 	
 	private long inputCnt =0;
 	private long outputCnt =0;
-	
-	// 헬퍼 생성자 - 파일큐 절대경로 정보 필요
-	public FileQueueHelper(String queuePath) {
+
+
+	private FileQueueHelper(Map<String, Object> config){
+
+		String queue = config.get("queue")!=null?(String)config.get("queue"):"";
+		String path = config.get("path")!=null?(String)config.get("path"):"";
+		String name = config.get("name")!=null?(String)config.get("name"):"";
+
+		if(StringUtils.isBlank(queue)){
+			queue = path+(path.endsWith(File.separator)?"":File.separator)+name;
+		}else{
+			int index = queue.lastIndexOf(File.separator);;
+			path = index>0?queue.substring(0,index):"";
+			name = index>0?queue.substring(index+1):"";
+		}
+
+		QUEUE = queue;
+		QUEUE_PATH = path;
+		QUEUE_NAME = name;
+
+		if(config.get("autoCommitMode")!=null)this.autoCommitMode = true;
+		if(config.get("encryptMode")!=null) this.encryptMode = true;
+		if(config.get("readOnly")!=null) this.readOnlyMode = true;
+		if(config.get("compress")!=null) this.compressMode = true;
+	}
+
+	// 헬퍼 생성자 - 파일큐 정보 필요
+	public FileQueueHelper(String queue) {
+		QUEUE = queue;
+		int index = 0;
+		if(StringUtils.isNotBlank(queue)){
+			index = queue.lastIndexOf(File.separator);
+		}
+		QUEUE_PATH = index>0?queue.substring(0,index):"";
+		QUEUE_NAME = index>0?queue.substring(index+1):"";
+	}
+
+	// 헬퍼 생성자 - 파일큐 위치 정보, 파일큐 이름 정보
+	public FileQueueHelper(String queuePath, String queueName) {
+		QUEUE = queuePath+(queuePath.endsWith(File.separator)?"":File.separator)+queueName;
 		QUEUE_PATH = queuePath;
-		int index = queuePath.lastIndexOf(File.separator);
-		QUEUE_NAME = queuePath.substring(index>0?index+1:0);
+		QUEUE_NAME = queueName;
 	}
 
 	// 파일큐를 Locking 하면서 점유 한다.
 	public synchronized boolean open() {
 		// 키 목록 초기화
 		keyList.clear();
-		// 파일큐 유무 확인 및 생성
+
+		// 파일큐 경로 정보 유무 확인
+		if(StringUtils.isBlank(QUEUE_PATH)){
+			logger.error("입력된 퍄일 큐 위치 정보가 없습니다.");
+			return false;
+		}
+
+		if(StringUtils.isBlank(QUEUE_NAME)){
+			logger.error("입력된 퍄일 큐 이름 정보가 없습니다.");
+			return false;
+		}
+
 		Path p= Paths.get(QUEUE_PATH);
 		if(Files.exists(p) == false) {
 			try {
 				Files.createFile(p);
+				logger.info("퍄일 큐 저장 디렉토리 생성 - {}", QUEUE_PATH);
 			} catch (IOException e) {
-				logger.error(QUEUE_PATH+" 파일 생성 중 에러 발생:"+e);
+				logger.error("퍄일 큐 저장 디렉토리 생성({}) 중 에러 발생:{}",QUEUE_PATH, e);
 				return false;
 			}
 		}
-		
-		
+
+		if(Files.exists(Paths.get(QUEUE))) restoreMode = true;
+
 		try {
-			// 파일큐 스토어 새성
-			store = getQueue();
+			HashMap<String, Object> configMap = new HashMap<String, Object>(5);
+			configMap.put("fileName", QUEUE);
+			if(autoCommitMode == false)configMap.put("autoCommitDelay", 0);
+			if(encryptMode)configMap.put("encryptionKey", this.ENCRYPT_KEY);
+			if(readOnlyMode)configMap.put("readOnly", 1);
+			if(compressMode)configMap.put("compress", 1);
+
+			// 파일큐 스토어 생성
+			store = getQueue(configMap);
+
 			// 생성 실패 시 FALSE - 추후 생성 실패 시에 대한 후처리 논의 필요 
 			if(store == null || store.isClosed()) return false;
+
 			// 파일큐 스토어의 특정 스키마 해쉬 오픈
 			dataMap = store.openMap(QUEUE_NAME);
 			openTime = System.currentTimeMillis();
+
 			// 파일큐 데이터와 키목록 일치 체크와 동기화
 			reStoreKey(dataMap);
 		}catch(Exception e) {
@@ -239,16 +312,14 @@ public class FileQueueHelper {
 	}
 	
 	
-	private MVStore getQueue() {
+	private MVStore getQueue(HashMap<String, Object> configMap) {
 		if(store == null || store.isClosed()) {
 			try {
-				store = new MVStore.Builder().
-		    		    fileName(QUEUE_PATH).
-		    		    encryptionKey(ENCRYPT_KEY.toCharArray()).
-		    		    compress().
-		    		    open();
+				String configInfo = DataUtils.appendMap(new StringBuilder(), configMap).toString();
+				logger.debug("파일 큐 설정 정보 : {}", configInfo);
+				store = new MVStore.Builder().fromString(configInfo).open();
 			}catch(Exception e) {
-				logger.error(QUEUE_PATH + "오픈 중 에러 발생:"+e);
+				logger.error("{} 파일 큐 오픈 중 에러 발생:{}", QUEUE, e);
 				return null;
 			}
 		}
@@ -350,5 +421,58 @@ public class FileQueueHelper {
 	public long getInputCnt() { return inputCnt; }
 
 	public long getOutputCnt() { return outputCnt;	}
+
+
+	public static final class Builder {
+		private final HashMap<String, Object> config;
+
+		private Builder(HashMap<String, Object> config) {
+			this.config = config;
+		}
+
+		public Builder() {
+			this.config = new HashMap();
+		}
+
+		private FileQueueHelper.Builder set(String var1, Object var2) {
+			this.config.put(var1, var2);
+			return this;
+		}
+
+
+		public FileQueueHelper.Builder queue(String queue) {
+			return this.set("queue", queue);
+		}
+
+		public FileQueueHelper.Builder path(String path) {
+			return this.set("path", path);
+		}
+
+		public FileQueueHelper.Builder name(String name) {
+			return this.set("name", name);
+		}
+
+		public FileQueueHelper.Builder autoCommit() {
+			return this.set("autoCommitMode", 1);
+		}
+
+		public FileQueueHelper.Builder encryptMode() {
+			return this.set("encryptMode", 1);
+		}
+
+		public FileQueueHelper.Builder readOnly() {
+			return this.set("readOnly", 1);
+		}
+
+		public FileQueueHelper.Builder compress() {
+			return this.set("compress", 1);
+		}
+
+
+		public FileQueueHelper create() {
+			return new FileQueueHelper(this.config);
+		}
+
+	}
 	
 }
