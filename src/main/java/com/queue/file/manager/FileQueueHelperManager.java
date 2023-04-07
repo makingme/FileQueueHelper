@@ -6,6 +6,7 @@ import com.queue.file.vo.FileQueueData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,57 +31,77 @@ public class FileQueueHelperManager {
 	public synchronized void enrollHelper(String key, FileQueueHelper helper) {
 		HELPER_MAP.put(key, helper);
 	}
-	
-	public synchronized boolean openQueue(String queuePath) {
-		boolean isOk = false;
-		FileQueueHelper helper = new FileQueueHelper(queuePath);
-		isOk = helper.open();
-		if(isOk)HELPER_MAP.put(queuePath, helper);
+
+	// 오토 커밋 모드:활성화, 읽기+쓰기모드:모두활성화 , 암호화모드:비활성화 , 압축모드:비활성화
+	public synchronized boolean openQueue(String queue) {
+		FileQueueHelper helper = new FileQueueHelper(queue);
+		if(getFileQueue(helper.getQUEUE()) != null){
+			logger.info("큐 생성 실패 - {} 큐가 존재 함", helper.getQUEUE());
+			return false;
+		}
+
+		boolean isOk = helper.open();
+		if(isOk)HELPER_MAP.put(helper.getQUEUE(), helper);
 		return isOk;
 	}
+
+	// 오토 커밋 모드:활성화, 읽기+쓰기모드:모두활성화 , 암호화모드:비활성화 , 압축모드:비활성화
+	public synchronized boolean openQueue(String queuePath, String queueName) {
+		FileQueueHelper helper = new FileQueueHelper(queuePath, queueName);
+		if(getFileQueue(helper.getQUEUE()) != null){
+			logger.info("큐 생성 실패 - {} 큐가 존재 함", helper.getQUEUE());
+			return false;
+		}
+		boolean isOk = helper.open();
+		if(isOk)HELPER_MAP.put(helper.getQUEUE(), helper);
+		return isOk;
+	}
+
+	// 오토 커밋 모드 지정, 읽기+쓰기 모드 지정, 암호화모드 지정, 압축모드 지정 가능
+	public synchronized boolean openQueue(Map<String, Object> config) {
+		FileQueueHelper helper = new FileQueueHelper(config);
+		if(getFileQueue(helper.getQUEUE()) != null){
+			logger.info("큐 생성 실패 - {} 큐가 존재 함", helper.getQUEUE());
+			return false;
+		}
+		boolean isOk = helper.open();
+		if(isOk)HELPER_MAP.put(helper.getQUEUE(), helper);
+		return isOk;
+	}
+
 	
 	private FileQueueHelper getFileQueue(String queuePath) {
 		FileQueueHelper helper = HELPER_MAP.get(queuePath);
 		if(helper != null && helper.isOk()) return helper;
-		boolean isOk = false;
-		try {
-			helper = new FileQueueHelper(queuePath);
-			isOk = helper.open();
-			if(isOk) {
-				HELPER_MAP.put(queuePath, helper);
-			}else {
-				helper.close();
-				helper = null;
-			}
-		}catch(Exception e) {
-			logger.error(queuePath+" 오픈 중 에러 발생:"+e);
-		}
-		
-		return isOk?helper:null;
+		return null;
 	}
 	
 	// 지정 큐를 닫는다.
-	public synchronized void closeQueue(String queuePath) {
-		FileQueueHelper helper = HELPER_MAP.remove(queuePath);
+	public synchronized void closeQueue(String queue) {
+		FileQueueHelper helper = HELPER_MAP.remove(queue);
 		if(helper != null) helper.close();
 	}
 	
 	// 특정 큐에 데이터를 넣는다
-	public synchronized boolean putData(String queuePath, Object object) {
-		boolean isOk = false;
-		FileQueueHelper helper = getFileQueue(queuePath);
-		if(helper == null) return false;
-		
-		isOk = helper.putData(object);
-		return isOk;
+	public synchronized boolean putData(String queue, Object object) {
+		FileQueueHelper helper = getFileQueue(queue);
+		if(helper == null) {
+			logger.error("{} 지정한 큐가 존재 하지 않음 - 데이터 입력 실패", queue);
+			return false;
+		}
+
+		return helper.putData(object);
 	}
 	
 	// 특정큐에 데이터 리스트를 넣는다
-	public synchronized int putDataList(String queuePath, List<Object> dataList) {
+	public synchronized int putDataList(String queue, List<Object> dataList) {
 		int insertCnt = 0;
 
-		FileQueueHelper helper = getFileQueue(queuePath);
-		if(helper == null) return -1;
+		FileQueueHelper helper = getFileQueue(queue);
+		if(helper == null) {
+			logger.error("{} 지정한 큐가 존재 하지 않음 - 데이터 입력 실패", queue);
+			return -1;
+		}
 		
 		insertCnt = helper.putDataList(dataList);
 		
