@@ -1,10 +1,12 @@
 package com.queue.file.controller;
 
 import com.queue.file.vo.FileQueueData;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.h2.mvstore.DataUtils;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
+import org.h2.mvstore.OffHeapStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,13 +19,13 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
-
+//TODO:: 메모리 캐쉬 기능 제공 및 캐쉬 파일큐 저장 기능 추가, OOME 일 경우 트랜잭션 이상 현상 체크
 public class ManualController implements Controller{
     private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
 
     private MVStore store = null;
 
-    private boolean manualCommitMode = false;
+    private boolean manualCommitMode = true;
 
     private boolean encryptMode = false;
 
@@ -33,34 +35,28 @@ public class ManualController implements Controller{
 
     private boolean restoreMode = false;
 
+    private final int MAX_READER;
 
-    private int MAX_WRITER = 1;
-    private int MAX_READER =1;
+    private final int LIMIT_SIZE;
 
-    Semaphore readSema = new Semaphore(MAX_READER, true);
+    private final Semaphore readSema ;
 
-    Semaphore dataSema = new Semaphore(1, true);
-
-
-    private Map<Long, String> writeBufferMap = null;
-
-    private Map<Long, List<FileQueueData>> writeBulkBufferMap = null;
+    private final Semaphore dataSema = new Semaphore(1, true);
 
     private MVMap<Long, String> dataMap = null;
-    private MVMap<Long, String> readBufferMap = null;
-
+    private MVMap<String, List<FileQueueData>> readBufferMap = null;
     private final List<Long> dataKeyList = new ArrayList<Long>();
 
-    private final AtomicLong orderIndex = new AtomicLong(0);
-    private final AtomicLong transIndex = new AtomicLong(1);
+    private final AtomicLong transactionIndex = new AtomicLong(1);
+    private final AtomicLong groupIndex = new AtomicLong(1);
+
 
     private final String QUEUE;
     private final String QUEUE_PATH;
     private final String QUEUE_NAME;
     private final String ENCRYPT_KEY ="ENCRYPT_KEY";
 
-    private final String WRITE_BUFFER ="WRITEBUFFER_";
-    private final String READ_BUFFER ="READBUFFER_";
+    private final String READ_BUFFER ="READ_BUFFER_";
 
     private long openTime = 0;
     private long lastInTime = 0;
@@ -78,6 +74,11 @@ public class ManualController implements Controller{
         }
         QUEUE_PATH = index>0?queue.substring(0,index):"";
         QUEUE_NAME = index>0?queue.substring(index+1):"";
+
+        MAX_READER = 1;
+        LIMIT_SIZE = 0;
+
+        readSema = new Semaphore(MAX_READER, true);
     }
 
     // 파일큐 위치 정보, 파일큐 이름 정보
@@ -85,6 +86,11 @@ public class ManualController implements Controller{
         QUEUE = queuePath+(queuePath.endsWith(File.separator)?"":File.separator)+queueName;
         QUEUE_PATH = queuePath;
         QUEUE_NAME = queueName;
+
+        MAX_READER = 1;
+        LIMIT_SIZE = 0;
+
+        readSema = new Semaphore(MAX_READER, true);
     }
 
     // 파일큐 생성 설정 정보 맵
@@ -105,46 +111,71 @@ public class ManualController implements Controller{
         QUEUE = queue;
         QUEUE_PATH = path;
         QUEUE_NAME = name;
-
+        // TODO: 추후 manualCommitMode 값에 따라 구현 체가 분기 되도록 지원
         if(config.get("manualCommitMode")!=null)this.manualCommitMode = true;
         if(config.get("encryptMode")!=null) this.encryptMode = true;
         if(config.get("readOnly")!=null) this.readOnlyMode = true;
         if(config.get("compress")!=null) this.compressMode = true;
+        int limit = 0, multiRead = 1;
+        if(config.get("limit")!=null) {
+            int var = (int)config.get("limit");
+            if(var > 0) limit = var;
+        }
+        if(config.get("multiRead")!=null) {
+            int var = (int)config.get("multiRead");
+            if(var > 1) multiRead = var;
+        }
+
+        LIMIT_SIZE = limit;
+        MAX_READER = multiRead;
+
+        readSema = new Semaphore(MAX_READER, true);
     }
 
     @Override
-    public synchronized boolean open() {
+    public boolean validate(){
         // 파일큐 경로 정보 유무 확인
         if(StringUtils.isBlank(QUEUE_PATH)){
-            logger.error("입력된 퍄일 큐 위치 정보가 없습니다.");
+            logger.error("<큐 활성화 : 실패> = 큐 정보:[{}], 큐 위치 정보 없음", QUEUE);
             return false;
         }
 
         if(StringUtils.isBlank(QUEUE_NAME)){
-            logger.error("입력된 퍄일 큐 이름 정보가 없습니다.");
+            logger.error("<큐 활성화 : 실패> = 큐 정보:[{}], 큐 이름 정보 없음", QUEUE);
             return false;
         }
 
+        if(QUEUE_NAME.startsWith(READ_BUFFER)){
+            logger.error("<큐 활성화 : 실패> = [{}] 접두어는 사용 불가", READ_BUFFER);
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public synchronized boolean open() {
+
+        // 멤버 변구 검증
+        if(validate() == false){
+            return false;
+        }
+
+        // 파일큐 경로 정보 유무 확인
         Path p= Paths.get(QUEUE_PATH);
         if(Files.exists(p) == false) {
             try {
                 Files.createFile(p);
-                logger.info("퍄일 큐 저장 디렉토리 생성 - {}", QUEUE_PATH);
+                logger.info("<디렉토리 생성 : 성공> = 경로 정보:[{}]", QUEUE_PATH);
             } catch (IOException e) {
-                logger.error("퍄일 큐 저장 디렉토리 생성({}) 중 에러 발생:{}",QUEUE_PATH, e);
+                logger.error("<디렉토리 생성 : 실패> = 경로 정보:[{}], 에러 발생:[{}]", QUEUE_PATH, e);
                 return false;
             }
-        }
-
-        if(QUEUE_NAME.startsWith(WRITE_BUFFER)||QUEUE_NAME.startsWith(READ_BUFFER)){
-            logger.error("{}, {} 접두어는 사용 불가 - 큐 생성 실패", WRITE_BUFFER, READ_BUFFER);
-            return false;
         }
 
         // 기존 파일 큐가 존재 하면 복구 모드로 지정
         if(Files.exists(Paths.get(QUEUE))) {
             restoreMode = true;
-            logger.info("기존 퍄일 큐 확인({}), 복구 모드 활성화", QUEUE);
+            logger.debug("<큐 활성화 : 정보> = 큐 이름:[{}], 복구 모드 활성화", QUEUE_NAME);
         }
 
         try {
@@ -154,17 +185,14 @@ public class ManualController implements Controller{
             // 생성 실패 시 FALSE
             if(store == null || store.isClosed()) return false;
 
-            // 쓰기 버퍼 스키마 오픈
-            writeBufferMap = new ConcurrentHashMap<Long, String>();
-            writeBulkBufferMap = new ConcurrentHashMap<Long, List<FileQueueData>>();
-
             // 읽기 버퍼 스키마 오픈
             readBufferMap = store.openMap(READ_BUFFER+QUEUE_NAME);
+
             // 데이터 스키마 오픈
             dataMap = store.openMap(QUEUE_NAME);
 
             if(isOk() == false){
-                logger.info("{} 큐 활성화 실패");
+                logger.info("<큐 활성화 : 실패> = 큐:[{}]", QUEUE_NAME);
             }
 
             // 큐 오픈 시간 기록
@@ -174,10 +202,12 @@ public class ManualController implements Controller{
             if(restoreMode){
                 realignData();
                 long dataMaxKey = realignKey(dataKeyList, dataMap);
-                orderIndex.set(dataMaxKey+1000);
+                if(dataMaxKey>0){
+                    transactionIndex.set(dataMaxKey+1001);
+                }
             }
         }catch(Exception e) {
-            logger.error(QUEUE_PATH+" 큐 활성화 중 에러 발생:"+e);
+            logger.error("<큐 활성화 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
             return false;
         }
 
@@ -194,12 +224,15 @@ public class ManualController implements Controller{
 
             try {
                 String configInfo = DataUtils.appendMap(new StringBuilder(), configMap).toString();
+                //OffHeapStore offHeap = new OffHeapStore();
                 MVStore.Builder builder = new MVStore.Builder().fromString(configInfo);
                 if(encryptMode)builder.encryptionKey(ENCRYPT_KEY.toCharArray());
-                logger.info("파일 큐 설정 정보 : {}", builder.toString());
                 store = builder.open();
+                //store.setCacheSize(5);  할당 메모리 사이즈 조정 - default 16mb
+                logger.info("<큐 오픈 : 성공> = 큐:[{}], 큐 설정 정보 :[{}]", QUEUE_NAME, builder.toString());
             }catch(Exception e) {
-                logger.error("{} 파일 큐 오픈 중 에러 발생:{}", QUEUE, e);
+                logger.error("<큐 오픈 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.getMessage());
+                e.printStackTrace();
                 return null;
             }
         }
@@ -214,209 +247,385 @@ public class ManualController implements Controller{
             dataSema.acquire();
             readSema.acquire(MAX_READER);
 
-            // 쓰기 버퍼 영역 데이터는 삭제 함
-            if(writeBufferMap.size()>0){
-                writeBufferMap.clear();
-            }
-
             // 읽기 버퍼 영역 데이터는 데이터 영역으로 편입
-            if(readBufferMap.size()>0){
-                for(long key : readBufferMap.keySet()){
-                    String data = readBufferMap.remove(key);
-                    dataMap.put(key, data);
+            int targetDataSize = readBufferMap.size();
+            if(targetDataSize>0){
+                for(String threadName : readBufferMap.keySet()){
+                    List<FileQueueData> fileQueueDataList = readBufferMap.remove(threadName);
+                    for (FileQueueData fData : fileQueueDataList){
+                        dataKeyList.add(fData.getTransactionKey());
+                        dataMap.put(fData.getTransactionKey(), fData.toString());
+                    }
                 }
+                logger.info("<큐 데이터 이관 : 성공> = 큐:[{}], 이관 읽기 버퍼 데이터 갯수:[{}]", QUEUE_NAME, targetDataSize);
+                // 데이터 이관 정리
+                store.commit();
             }
-            // 데이터 이관 정리
-            store.commit();
 
-        }catch (Exception e){
+        }catch (InterruptedException e){
+            logger.error("<큐 데이터 정렬 : 실패> = 큐:[{}],  에러 발생:[{}]", QUEUE_NAME, e.toString());
             throw new InterruptedException();
+        }catch (Exception e){
+            store.rollback();
+            logger.error("<큐 데이터 정렬 : 실패> = 큐 롤백 수행, 큐:[{}],  에러 발생:[{}]", QUEUE_NAME, e.toString());
         }finally {
             // 데이터/읽기 영역 통제 해제
-            dataSema.acquire();
+            dataSema.release();
             readSema.release(MAX_READER);
         }
     }
 
     @Override
     public long realignKey(List<Long> keyList, MVMap<Long, String> dataMap) {
-        // KEY SYNC
+        // 데이터 영역 사이즈 취득
         int mapSize = dataMap.size();
+        // 키 영역 사이즈 취득
         int listSize = keyList.size();
+        // 동기화 건수 확인
         int diffCnt = mapSize - listSize;
-        long maxKey = 1;
+        // 키 초기 값
+        long maxKey = 0;
 
-        if(diffCnt > 0){
+        // 동기화 여부 확인
+        if(diffCnt != 0){
+            // 키 영역 클렌징
             keyList.clear();
+            // 데이터 영역 기준으로 키 영역 초기화 진행
             for(Long k: dataMap.keySet()) {
                 keyList.add(k);
             }
+            // 키 영역 정렬
             Collections.sort(keyList, (a, b)->a.compareTo(b));
+            // 동기화 건수 보정
             if(diffCnt < 0) diffCnt = diffCnt*-1;
-            logger.warn("인덱스키 동기화 {}건 진행 - KEY DATA:{}, QUEUE DATA:{}", diffCnt, listSize, mapSize);
+            // 최대 값 추출 - 트랜잭션 키 초기화 값 추출
             if(keyList.size()>0)maxKey = keyList.get(keyList.size()-1);
+
+            logger.info("<큐 정보 동기화 : 성공> = 큐명:[{}], 초기 KEY 갯수:[{}], 초기 DATA 화갯수:[{}], 동기화 건수:[{}]", QUEUE_NAME, listSize, mapSize, diffCnt);
         }
         return maxKey;
     }
 
     @Override
-    public long write(String data) throws InterruptedException{
-        if(FileQueueData.isValid(data) == false) {
-            logger.warn("쓰기 요청 데이터 구성 오류 - {}", data);
-            return -1;
+    public void write(Map<String, Object> dataMap) throws InterruptedException {
+        if(ObjectUtils.isEmpty(dataMap)){
+            return;
         }
-
-        long tranKey = getNextTransKey();
-        writeBufferMap.put(tranKey, data.toString());
-
-        return tranKey;
+        long transactionKey = getTransactionKey();
+        FileQueueData fData = new FileQueueData(transactionKey, dataMap);
+        write(fData);
     }
 
     @Override
-    public long write(FileQueueData data) throws InterruptedException {
-
-        long transKey = getNextTransKey();
-        writeBufferMap.put(transKey, data.toString());
-
-        return transKey;
+    public void write(FileQueueData fData) throws InterruptedException {
+        if(ObjectUtils.isEmpty(fData)){
+            return;
+        }
+        if(fData.getTransactionKey() <= 0){
+            fData.setTransactionKey(getTransactionKey());
+        }
+        writeQueueData(Arrays.asList(fData));
     }
 
+    @Override
+    public void write(List<Map<String, Object>> dataList) throws InterruptedException {
+        long groupKey = 0;
+        if(ObjectUtils.isEmpty(dataList)){
+            return;
+        }
+        int size = dataList.size();
+        List<FileQueueData> fileQueueDataList = new ArrayList<FileQueueData>(dataList.size());
+        if(size>1)groupKey = getGroupKey();
+        for(Map<String, Object> dataMap : dataList){
+            FileQueueData fData = new FileQueueData(getTransactionKey(), dataMap);
+            if(size>1)fData.setGroupTransactionKey(groupKey);
+            fileQueueDataList.add(fData);
+        }
 
-    public long write(List<FileQueueData> dataList) throws InterruptedException {
-
-        long transKey = getNextTransKey();
-        writeBulkBufferMap.put(transKey, dataList);
-
-        return transKey;
+        writeQueueData(fileQueueDataList);
     }
 
-    public void writeCommit(long transKey){
+    @Override
+    public void writeQueueData(List<FileQueueData> fileQueueDataList) throws InterruptedException {
+        if(ObjectUtils.isEmpty(fileQueueDataList)){
+            return;
+        }
+
+        long groupKey = -1;
+        // 개별 인덱스 키 체크 및 부여
+        for(FileQueueData fData : fileQueueDataList){
+            // 개별 인덱스 체크 및 부여
+            if(fData.getTransactionKey() <= 0)fData.setTransactionKey(getTransactionKey());
+
+            // 데이터가 1개 이상이며, 그룹키 지정이 안된 데이터가 있을 경우 1회에 한정하여 공통 그룹 키 채번
+            if(fileQueueDataList.size()>1 && groupKey <0 && fData.getGroupTransactionKey()<=0) groupKey = getGroupKey();
+        }
+        // 공통 그룹 키 지정
+        if(groupKey > 0){
+            for(FileQueueData fData : fileQueueDataList){
+                fData.setGroupTransactionKey(groupKey);
+            }
+        }
+
+        boolean isReadLock = false;
+        boolean isBulk = fileQueueDataList.size()>1?true:false;
         try {
             // 데이터 영역 통제
             dataSema.acquire();
-            String data = writeBufferMap.get(transKey);
+            // 데이터가 1개 이상 일 경우 읽기 영역 통제 - READ COMMIT/ROLLBACK 통제(STORE 트랜잭션 이슈)
+            if(isBulk){
+                readSema.acquire(MAX_READER);
+                isReadLock = true;
+            }
 
-            dataMap.put(transKey, data);
-            dataKeyList.add(transKey);
+            // 데이터 영역에 데이터 입력
+            for (FileQueueData fData : fileQueueDataList){
+                long innerKey = fData.getTransactionKey();
+                dataMap.put(innerKey, fData.toString());
+                dataKeyList.add(innerKey);
+            }
 
-            writeBufferMap.remove(transKey);
             store.commit();
+            logger.debug("<쓰기 쓰기 : 성공> = 큐 정보:[{}], 쓰레드 명:[{}],데이타 갯수:[{}]", QUEUE_NAME, Thread.currentThread().getName(), fileQueueDataList.size());
+            fileQueueDataList = null;
+        }catch (InterruptedException e){
+            logger.error("<쓰기 쓰기: 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.getMessage());
+            throw new InterruptedException();
+        }catch (Exception e){
+            logger.error("<쓰기 커밋 : 실패> = 큐:[{}], 큐 롤백 수행:[{}], 에러 발생:[{}]", QUEUE_NAME, isBulk, e.toString());
+            // 벌크 처리 경우만 STORE 롤백 수행
+            if(isBulk) {
+                store.rollback();
+            }
+        }finally {
             // 데이터 영역 통제 해제
             dataSema.release();
-            logger.debug("W-COMMIT 수행 - {} 큐, DATA : [{}]", QUEUE_NAME, data);
-        }catch (Exception e){
-            logger.error(e.toString());
+            // 벌크 처리 경우 - 읽기 영역 통제 해제
+            if(isReadLock)readSema.release(MAX_READER);
         }
     }
 
-    public void writeRollback(long indexKey){
-        try {
-            // 데이터 영역 통제
-            writeSema.acquire();
-
-            String data = writeBufferMap.remove(indexKey);
-
-            store.commit();
-            // 데이터 영역 통제 해제
-            writeSema.release();
-            logger.debug("W-ROLLBACK 수행 - {} 큐, DATA : [{}]", QUEUE_NAME, data);
-        }catch (Exception e){
-            logger.error(e.toString());
+    private long getTransactionKey() {
+        synchronized (transactionIndex) {
+            transactionIndex.compareAndSet(Long.MAX_VALUE, 1L);
+            return transactionIndex.getAndIncrement();
         }
     }
 
-    private synchronized long getNextDataKey() {
-        long index = orderIndex.getAndAdd(2L);
-
-        if(index >= Long.MAX_VALUE) {
-            index = 2;
-            orderIndex.set(index);
+    private long getGroupKey() {
+        synchronized (groupIndex) {
+            groupIndex.compareAndSet(Long.MAX_VALUE, 1L);
+            return groupIndex.getAndIncrement();
         }
-        return index;
-    }
-
-    private synchronized long getNextTransKey() {
-        long index =transIndex.getAndAdd(2L);
-
-        if(index >= Long.MAX_VALUE) {
-            index = 3;
-            transIndex.set(index);
-        }
-        return index;
     }
 
     @Override
-    public FileQueueData read() throws InterruptedException {
-        FileQueueData queueData = null;
-        // 데이터 영역 통제
-        dataSema.acquire();
-        if(dataMap.size()<=0)return null;
-        // 데이터 영역 키<>데이터 동기화
-        realignKey(dataKeyList, dataMap);
+    public List<FileQueueData> read(String threadName) throws InterruptedException {
 
-        //키와 데이터 추출
-        Long key = dataKeyList.get(0);
-        String data = dataMap.get(key);
+        List<FileQueueData> queueDataList = null;
 
-        // 큐 데이터 생성
-        queueData = FileQueueData.fromString(data);
-
-        // 큐 데이터가 정상일 경우만 읽기 버퍼 영역에 저장
-        if(queueData != null){
-            readBufferMap.put(key, data);
+        // 읽기 영역에 기존 데이터가 있는지 확인 후 진행
+        queueDataList = readBufferMap.get(threadName);
+        if(ObjectUtils.isNotEmpty(queueDataList)){
+            logger.debug("<단건 (버퍼)읽기 : 성공> = 큐:[{}], 키 정보{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, queueDataList.size());
+            return queueDataList;
         }
 
-        // 데이터 영역에서 제거
-        dataKeyList.remove(key);
-        dataMap.remove(key);
+        try{
+            // 데이터 영역 통제
+            dataSema.acquire();
 
-        store.commit();
+            // 데이터 영역 데이터 건수 체크
+            if(dataMap.size()<1){
+                logger.debug("<단건 읽기 : 무시> = 큐:[{}], 키 정보:[{}], 데이터 없음", QUEUE_NAME, threadName);
+                return null;
+            }
 
-        // 데이터 영역 통제 해제
-        dataSema.release();
-        return queueData;
+            // 데이터 영역 키<>데이터 동기화
+            realignKey(dataKeyList, dataMap);
+
+            //키와 데이터 추출
+            Long key = dataKeyList.get(0);
+            String data = dataMap.get(key);
+
+            // 큐 데이터 생성
+            FileQueueData fData = FileQueueData.fromString(data);
+
+            // 큐 데이터가 정상일 경우만 읽기 버퍼 영역에 저장
+            if(ObjectUtils.isNotEmpty(fData)){
+                // 큐 데이터 리스트 생성
+                queueDataList = Arrays.asList(fData);
+                readBufferMap.put(threadName, queueDataList);
+            }
+
+            // 데이터 영역에서 제거
+            dataKeyList.remove(key);
+            dataMap.remove(key);
+
+            store.commit();
+        }catch (InterruptedException e){
+            logger.error("<단건 읽기 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
+            throw new InterruptedException();
+        }catch (Exception e){
+            logger.error("<단건 읽기 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
+        } finally{
+            // 데이터 영역 통제 해제
+            dataSema.release();
+        }
+
+        logger.debug("<단건 읽기 : 성공> = 큐 정보:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, queueDataList.size());
+        return queueDataList;
     }
 
-    public void readCommit(long indexKey){
+    @Override
+    public List<FileQueueData> read(String threadName, int readCount) throws InterruptedException {
+        List<FileQueueData> queueDataList = null;
+        boolean isReadLock = false;
+
+        // 읽기 영역에 기존 데이터가 있는지 확인 후 진행
+        queueDataList = readBufferMap.get(threadName);
+        if(ObjectUtils.isNotEmpty(queueDataList)){
+            logger.debug("<대량 (버퍼)읽기 : 성공> = 큐 정보:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, queueDataList.size());
+            return queueDataList;
+        }
+
+        try {
+            // 데이터 영역 통제
+            dataSema.acquire();
+
+            // 데이터 영역 데이터 건수 취득
+            int mapSize = dataMap.size();
+            if(mapSize < 1){
+                logger.debug("<대량 읽기 : 무시> = 큐 정보:[{}], 키 정보:[{}], 데이터 없음", QUEUE_NAME, threadName);
+                return null;
+            }
+
+            // 데이터 영역 키<>데이터 동기화
+            realignKey(dataKeyList, dataMap);
+
+            // 실제 전달 제한 건수 추출
+            int selectCount = readCount > mapSize ? mapSize:readCount;
+            queueDataList = new ArrayList<FileQueueData>(selectCount);
+
+            // 읽기 영역 통제 - READ COMMIT/ROLLBACK 통제(STORE 트랜잭션 이슈)
+            readSema.acquire(MAX_READER);
+            isReadLock = true;
+
+            // 데이터 영역에서 데이터 삭제 및 추출
+            for(int i =1; i<=selectCount; i++){
+                long transKey = dataKeyList.remove(0);
+                String data = dataMap.remove(transKey);
+
+                FileQueueData fData = FileQueueData.fromString(data);
+                queueDataList.add(fData);
+            }
+
+            // 읽기 영역에 데이터 저장
+            readBufferMap.put(threadName, queueDataList);
+            store.commit();
+
+            logger.debug("<대량 읽기 : 성공> = 큐:[{}], 키 정보{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, queueDataList.size());
+        }catch (InterruptedException e){
+            logger.error("<대량 읽기 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
+            throw new InterruptedException();
+        }catch (Exception e){
+            store.rollback();
+            logger.error("<대량 읽기 : 실패> = 큐:[{}], 롤백 수행, 에러 발생:[{}]", QUEUE_NAME, e.toString());
+        }finally {
+            // 데이터 영역 통제 해제
+            dataSema.release();
+            // 벌크 처리 경우 - 읽기 영역 통제 해제
+            if(isReadLock)readSema.release(MAX_READER);
+        }
+        return queueDataList;
+    }
+
+    @Override
+    public void readCommit(String threadName) throws InterruptedException {
+
         try {
             // 읽기 버퍼 영역 통제
             readSema.acquire();
+            List<FileQueueData> fileQueueDataList = readBufferMap.remove(threadName);
+            if(ObjectUtils.isEmpty(fileQueueDataList)){
+                logger.warn("<읽기 커밋 : 무시> = 큐:[{}], 키 정보:[{}], 데이터 없음", QUEUE_NAME, threadName);
+                return;
+            }
 
-            String data = readBufferMap.remove(indexKey);
-
+            // 커밋
             store.commit();
+            logger.debug("<읽기 커밋 : 성공> = 큐:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, fileQueueDataList.size());
+        }catch (InterruptedException e){
+            logger.error("<읽기 커밋 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
+            throw new InterruptedException();
+        }catch (Exception e){
+            logger.error("<읽기 커밋 : 실패> = 큐:[{}], 롤백 수행, 에러 발생:[{}]", QUEUE_NAME, e.toString());
+        }finally {
             // 읽기 버퍼 영역 통제 해제
             readSema.release();
-            logger.debug("R-COMMIT 수행 - {} 큐, DATA : [{}], write commit 수행", QUEUE_NAME, data);
-        }catch (Exception e){
-            logger.error(e.toString());
         }
     }
 
-    public void readRollBack(long indexKey){
-        try {
-            // 데이터 영역 통제
-            dataSema.acquire();
-            String data = readBufferMap.get(indexKey);
+    public void readRollBack(String threadName){
 
-            dataMap.put(indexKey, data);
-            dataKeyList.add(indexKey);
+        try {
+
+            List<FileQueueData> fileQueueDataList = readBufferMap.get(threadName);
+            if(ObjectUtils.isEmpty(fileQueueDataList)){
+                logger.warn("<읽기 롤백 : 무시> = 큐 정보:[{}], 키 정보:[{}], 데이터 없음", QUEUE_NAME, threadName);
+                return;
+            }
+
+            // 읽기/데이터 영역 통제
+            dataSema.acquire();
+            readSema.acquire(MAX_READER);
+            for(FileQueueData fdata : fileQueueDataList){
+                long transactionKey = fdata.getTransactionKey();
+                dataMap.put(fdata.getTransactionKey(), fdata.toString());
+                dataKeyList.add(transactionKey);
+            }
+            // 읽기 영역에서 데이터 삭제
+            readBufferMap.remove(threadName);
+
+            // 데이터 키 정렬
             Collections.sort(dataKeyList, (a, b)->a.compareTo(b));
 
-            readBufferMap.remove(indexKey);
             store.commit();
-            // 데이터 영역 통제 해제
-            dataSema.release();
-            logger.debug("R-ROLLBACK 수행 - {} 큐, DATA : [{}]", QUEUE_NAME, data);
+            logger.debug("<읽기 롤백 : 성공> = 큐:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, fileQueueDataList.size());
         }catch (Exception e){
             logger.error(e.toString());
+        }finally {
+            readSema.release(MAX_READER);
+            dataSema.release();
         }
     }
 
     @Override
     public boolean isOk() {
         if((store == null || dataMap == null || store.isClosed() || dataMap.isClosed()))return false;
-        return (readBufferMap == null || writeBufferMap == null || readBufferMap.isClosed() || writeBufferMap.isClosed())?false:true;
+        if(readBufferMap == null || readBufferMap.isClosed()) return  false;
+        return true;
+    }
+
+    @Override
+    public int getQueueSize() {
+        return dataMap == null? 0 : dataMap.size();
+    }
+
+    // 설정 값이며, 별도 내부에서 해당 값으로 제한 하지 않음, 큐를 사용하는 프로세스에서 참조 하는 값으로 사용
+    @Override
+    public int getMaxSize() {
+        return LIMIT_SIZE;
+    }
+
+    @Override
+    public void close() {
+        if(store != null) {
+            store.close();
+        }
+        if(dataKeyList != null) {
+            dataKeyList.clear();
+        }
     }
 
     @Override

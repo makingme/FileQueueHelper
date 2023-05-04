@@ -194,7 +194,7 @@ public class FileQueueHelper {
 		String data = gson.toJson(object);
 		long now = System.currentTimeMillis();
 		// 파일큐 저장
-		dataMap.put(index,  hint+FileQueueData.DELIMITER+now+FileQueueData.DELIMITER+data);
+		//dataMap.put(index,  hint+FileQueueData.DELIMITER+now+FileQueueData.DELIMITER+data);
 		// 키목록 인덱스 정보 추가
 		keyList.add(index);
 		inputCnt++;
@@ -213,7 +213,7 @@ public class FileQueueHelper {
 			long index = getIndex();
 			String hint = extractHint(object);
 			String data = gson.toJson(object);
-			dataMap.put(index, hint+FileQueueData.DELIMITER+now+FileQueueData.DELIMITER+data);
+			//dataMap.put(index, hint+FileQueueData.DELIMITER+now+FileQueueData.DELIMITER+data);
 			keyList.add(index);
 			insertCnt +=1;
 		}
@@ -233,8 +233,8 @@ public class FileQueueHelper {
 		Long key = keyList.remove(0);
         data = dataMap.remove(key);
         if(data == null)return null;
-        String[] datas = data.split(FileQueueData.DELIMITER);
-        fData = new FileQueueData(datas[HINT_INDEX], datas[DATA_INDEX], datas[TIME_INDEX]);
+        //String[] datas = data.split(FileQueueData.DELIMITER);
+        //fData = new FileQueueData(datas[HINT_INDEX], datas[DATA_INDEX], datas[TIME_INDEX]);
         lastOutTime = System.currentTimeMillis();
         outputCnt +=1;
 		return fData;
@@ -252,8 +252,8 @@ public class FileQueueHelper {
 		for(int i=0; i<loopCnt; i++) {
 			Long key = keyList.remove(0);
 			String data = dataMap.remove(key);
-			String[] datas = data.split(FileQueueData.DELIMITER);
-			fData = new FileQueueData(datas[HINT_INDEX], datas[DATA_INDEX], datas[TIME_INDEX]);
+			//String[] datas = data.split(FileQueueData.DELIMITER);
+			//fData = new FileQueueData(datas[HINT_INDEX], datas[DATA_INDEX], datas[TIME_INDEX]);
 			if(StringUtils.isNotBlank(data)) {
 				dataList.add(fData);
 				outputCnt+=1;
@@ -280,9 +280,9 @@ public class FileQueueHelper {
 		for(Entry<Long, String> element: dataMap.entrySet()) {
 			String data = element.getValue();
 			try {
-				String[] datas = data.split(FileQueueData.DELIMITER);
-				fData = new FileQueueData(datas[HINT_INDEX], datas[DATA_INDEX], datas[TIME_INDEX]);
-				gson.fromJson(fData.getData(), JsonObject.class);				
+				//String[] datas = data.split(FileQueueData.DELIMITER);
+				//fData = new FileQueueData(datas[HINT_INDEX], datas[DATA_INDEX], datas[TIME_INDEX]);
+				//gson.fromJson(fData.getData(), JsonObject.class);
 			}catch(Exception e) {
 				dataList.add(fData);
 			}

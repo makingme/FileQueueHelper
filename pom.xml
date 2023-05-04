@@ -49,7 +49,10 @@
             <version>3.12.0</version>
         </dependency>
 
-        <!-- FILE HASH -->
+        <!--
+            FILE HASH  - https://www.h2database.com/html/mvstore.html#current_state
+            https://javadoc.io/doc/com.h2database/h2-mvstore/latest/index.html
+        -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -62,4 +65,5 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
 </project>

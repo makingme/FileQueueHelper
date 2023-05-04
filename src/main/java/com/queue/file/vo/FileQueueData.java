@@ -1,35 +1,50 @@
 package com.queue.file.vo;
 
+import com.google.gson.Gson;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public class FileQueueData {
-	public final static String DELIMITER = "+1U2R3A4C9/2E7U8M9S0+";
+import java.io.Serializable;
+import java.util.Map;
+
+public class FileQueueData implements Serializable {
+	private final static Gson gson = new Gson();
 	private String partition = "";
 	private String tag = "";
-	private Long key;
-	private Long createTime;
-	private String data;
 
-	public FileQueueData(String data) {
+	private long groupTransactionKey;
+	private long transactionKey;
+	private long createTime;
+	private Map<String, Object> data;
+
+	public FileQueueData(Map<String, Object> data) {
 		this.data = data;
 		this.createTime = System.currentTimeMillis();
 	}
 
-	public FileQueueData(String tag, String data) {
+	public FileQueueData(long transactionKey, long createTime) {
+		this.transactionKey = transactionKey;
+		this.createTime = createTime;
+	}
+
+	public FileQueueData(long transactionKey, Map<String, Object> data) {
+		this.transactionKey = transactionKey;
+		this.data = data;
+		this.createTime = System.currentTimeMillis();
+	}
+
+	public FileQueueData(String tag, Map<String, Object> data) {
 		this.tag = tag;
 		this.data = data;
 		this.createTime = System.currentTimeMillis();
 	}
-	public FileQueueData(String partition, String tag, String data) {
+	public FileQueueData(String partition, String tag, Map<String, Object> data) {
 		this.partition = partition;
 		this.tag = tag;
 		this.data = data;
 		this.createTime = System.currentTimeMillis();
 	}
 
-	public FileQueueData(String partition, String tag, String data, String time) {
+	public FileQueueData(String partition, String tag, Map<String, Object> data, String time) {
 		this.partition = partition;
 		this.tag = tag;
 		this.data = data;
@@ -44,34 +59,38 @@ public class FileQueueData {
 
 	public String getTag() { return tag;}
 
-	public Long getKey() {return key;}
+	public Long getTransactionKey() {return transactionKey;}
+	public void setTransactionKey(Long transactionKey) {this.transactionKey = transactionKey;}
+
+	public Long getGroupTransactionKey() {return groupTransactionKey;}
+
+	public void setGroupTransactionKey(Long groupTransactionKey) {this.groupTransactionKey = groupTransactionKey;}
 
 	public Long getCreateTime() { return createTime; }
-	
-	public String getData() { return data;	}
 
-	@Override
-	public String toString() {
-		return "@"+partition+DELIMITER+tag+DELIMITER+key+DELIMITER+createTime+DELIMITER+data+"@";
-	}
+	public Map<String, Object> getData() {return data;}
 
-	public static FileQueueData fromString(String lowData){
-		if(StringUtils.isBlank(lowData) || isValid(lowData) == false){
-			return null;
-		}
-		String[] dataArray = lowData.split(DELIMITER);
-		return new FileQueueData(dataArray[0], dataArray[1], dataArray[3], dataArray[4]);
-	}
 
 	public static boolean isValid(String lowData){
-		if(lowData.startsWith("@")== false || lowData.endsWith("@") == false){
-			return false;
-		}
 
-		String[] dataArray = lowData.split(DELIMITER);
-		if(dataArray.length != 5){
+		if( StringUtils.isBlank(lowData) || lowData.startsWith("@{")== false || lowData.endsWith("}@") == false){
 			return false;
 		}
 		return true;
 	}
+
+	@Override
+	public String toString() {
+		return new StringBuilder().append("@").append(gson.toJson(this)).append("@").toString();
+	}
+
+
+
+	public static FileQueueData fromString(String lowData){
+		if(isValid(lowData) == false) return null;
+		String data = lowData.substring(1, lowData.length()-1);
+
+		return gson.fromJson(data, FileQueueData.class);
+	}
+
 }
