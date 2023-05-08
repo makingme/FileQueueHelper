@@ -3,7 +3,7 @@ package com.queue.file.manager;
 import com.queue.file.controller.Controller;
 import com.queue.file.controller.ManualController;
 import com.queue.file.vo.FileQueueBuilder;
-import org.slf4j.Logg
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
