@@ -54,7 +54,10 @@ public class ControlManager {
 
     public void close(String queueName){
         Controller controller = CONTROL_MAP.get(queueName);
-        if(controller !=null)controller.close();
+        if(controller !=null){
+            logger.info("<큐 종료 : 정보> = 큐 이름:[{}], 사유:요청에 의한 큐 종료", queueName);
+            controller.close();
+        }
     }
 
 }

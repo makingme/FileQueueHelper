@@ -1,6 +1,7 @@
 package com.queue.file.sample;
 
 import com.queue.file.controller.Controller;
+import com.queue.file.exception.QueueWriteException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,8 +35,9 @@ public class WriterSample implements Runnable{
                 controller.write(dataMap);
                 //Thread.sleep(1000);
                 //logger.info("<데이터 입력> - 데이터 정보: [{}]", i);
-            } catch (InterruptedException e) {
+            }catch (QueueWriteException e) {
                 isRun = false;
+                throw new RuntimeException(e);
             }
         }
         logger.info("<데이터 입력 - 완료> - 데이터 갯수: [{}], 소요시간: [{}]", loopCnt, (System.currentTimeMillis()-startTime));

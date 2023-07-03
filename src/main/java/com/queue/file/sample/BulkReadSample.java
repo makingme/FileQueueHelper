@@ -1,6 +1,7 @@
 package com.queue.file.sample;
 
 import com.queue.file.controller.Controller;
+import com.queue.file.exception.QueueReadException;
 import com.queue.file.vo.FileQueueData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +56,9 @@ public class BulkReadSample implements Runnable{
                 }
             } catch (InterruptedException e) {
                 isRun = false;
+            } catch (QueueReadException e) {
+                isRun = false;
+                throw new RuntimeException(e);
             }
         }
     }

@@ -1,5 +1,8 @@
 package com.queue.file.controller;
 
+import com.queue.file.exception.InitializeException;
+import com.queue.file.exception.QueueReadException;
+import com.queue.file.exception.QueueWriteException;
 import com.queue.file.vo.FileQueueData;
 import org.h2.mvstore.MVMap;
 import org.slf4j.Logger;
@@ -18,21 +21,21 @@ public interface Controller {
 
     long realignKey(List<Long> keyList, MVMap<Long, String> dataMap);
 
-    void realignData() throws InterruptedException;
+    void realignData() throws InitializeException;
 
-    void write(Map<String, Object> dataMap)throws InterruptedException;
+    void write(Map<String, Object> dataMap)throws QueueWriteException;
 
-    void write(FileQueueData data) throws InterruptedException;
+    void write(FileQueueData data) throws QueueWriteException;
 
-    void write(List<Map<String, Object>> dataList)throws InterruptedException;
+    void write(List<Map<String, Object>> dataList)throws QueueWriteException;
 
-    void writeQueueData(List<FileQueueData> fileQueueDataList)throws InterruptedException;
+    void writeQueueData(List<FileQueueData> fileQueueDataList)throws QueueWriteException;
 
-    List<FileQueueData> read(String threadName) throws InterruptedException;
+    List<FileQueueData> read(String threadName) throws QueueReadException;
 
-    List<FileQueueData> read(String threadName, int readCount) throws InterruptedException;
+    List<FileQueueData> read(String threadName, int readCount) throws QueueReadException;
 
-    void readCommit(String threadName) throws InterruptedException;
+    void readCommit(String threadName) throws QueueReadException;
 
     boolean isOk();
 

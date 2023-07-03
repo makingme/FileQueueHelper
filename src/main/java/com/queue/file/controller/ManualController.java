@@ -1,5 +1,8 @@
 package com.queue.file.controller;
 
+import com.queue.file.exception.InitializeException;
+import com.queue.file.exception.QueueReadException;
+import com.queue.file.exception.QueueWriteException;
 import com.queue.file.vo.FileQueueData;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -241,7 +244,7 @@ public class ManualController implements Controller{
 
 
     @Override
-    public void realignData() throws InterruptedException{
+    public void realignData() throws InitializeException {
         try{
             // 데이터/읽기 영역 통제
             dataSema.acquire();
@@ -262,12 +265,9 @@ public class ManualController implements Controller{
                 store.commit();
             }
 
-        }catch (InterruptedException e){
-            logger.error("<큐 데이터 정렬 : 실패> = 큐:[{}],  에러 발생:[{}]", QUEUE_NAME, e.toString());
-            throw new InterruptedException();
         }catch (Exception e){
             store.rollback();
-            logger.error("<큐 데이터 정렬 : 실패> = 큐 롤백 수행, 큐:[{}],  에러 발생:[{}]", QUEUE_NAME, e.toString());
+            throw new InitializeException("<큐 데이터 정렬 : 실패> = 큐 롤백 수행, 큐:["+QUEUE_NAME+"]", e);
         }finally {
             // 데이터/읽기 영역 통제 해제
             dataSema.release();
@@ -307,7 +307,7 @@ public class ManualController implements Controller{
     }
 
     @Override
-    public void write(Map<String, Object> dataMap) throws InterruptedException {
+    public void write(Map<String, Object> dataMap) throws QueueWriteException {
         if(ObjectUtils.isEmpty(dataMap)){
             return;
         }
@@ -317,7 +317,7 @@ public class ManualController implements Controller{
     }
 
     @Override
-    public void write(FileQueueData fData) throws InterruptedException {
+    public void write(FileQueueData fData) throws QueueWriteException {
         if(ObjectUtils.isEmpty(fData)){
             return;
         }
@@ -328,7 +328,7 @@ public class ManualController implements Controller{
     }
 
     @Override
-    public void write(List<Map<String, Object>> dataList) throws InterruptedException {
+    public void write(List<Map<String, Object>> dataList) throws QueueWriteException {
         long groupKey = 0;
         if(ObjectUtils.isEmpty(dataList)){
             return;
@@ -346,7 +346,7 @@ public class ManualController implements Controller{
     }
 
     @Override
-    public void writeQueueData(List<FileQueueData> fileQueueDataList) throws InterruptedException {
+    public void writeQueueData(List<FileQueueData> fileQueueDataList) throws QueueWriteException {
         if(ObjectUtils.isEmpty(fileQueueDataList)){
             return;
         }
@@ -384,19 +384,15 @@ public class ManualController implements Controller{
                 dataMap.put(innerKey, fData.toString());
                 dataKeyList.add(innerKey);
             }
-
             store.commit();
-            logger.debug("<쓰기 쓰기 : 성공> = 큐 정보:[{}], 쓰레드 명:[{}],데이타 갯수:[{}]", QUEUE_NAME, Thread.currentThread().getName(), fileQueueDataList.size());
+            logger.debug("<큐 쓰기 : 성공> = 큐 정보:[{}], 쓰레드 명:[{}],데이타 갯수:[{}]", QUEUE_NAME, Thread.currentThread().getName(), fileQueueDataList.size());
             fileQueueDataList = null;
-        }catch (InterruptedException e){
-            logger.error("<쓰기 쓰기: 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.getMessage());
-            throw new InterruptedException();
         }catch (Exception e){
-            logger.error("<쓰기 커밋 : 실패> = 큐:[{}], 큐 롤백 수행:[{}], 에러 발생:[{}]", QUEUE_NAME, isBulk, e.toString());
             // 벌크 처리 경우만 STORE 롤백 수행
             if(isBulk) {
                 store.rollback();
             }
+            throw new QueueWriteException("<큐 쓰기 커밋 : 실패> = 큐:["+QUEUE_NAME+"], 큐 롤백 수행:["+isBulk+"]", e);
         }finally {
             // 데이터 영역 통제 해제
             dataSema.release();
@@ -420,7 +416,7 @@ public class ManualController implements Controller{
     }
 
     @Override
-    public List<FileQueueData> read(String threadName) throws InterruptedException {
+    public List<FileQueueData> read(String threadName) throws QueueReadException {
 
         List<FileQueueData> queueDataList = null;
 
@@ -463,11 +459,8 @@ public class ManualController implements Controller{
             dataMap.remove(key);
 
             store.commit();
-        }catch (InterruptedException e){
-            logger.error("<단건 읽기 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
-            throw new InterruptedException();
         }catch (Exception e){
-            logger.error("<단건 읽기 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
+            throw new QueueReadException("<단건 읽기 : 실패> = 큐:["+QUEUE_NAME+"]", e);
         } finally{
             // 데이터 영역 통제 해제
             dataSema.release();
@@ -478,7 +471,7 @@ public class ManualController implements Controller{
     }
 
     @Override
-    public List<FileQueueData> read(String threadName, int readCount) throws InterruptedException {
+    public List<FileQueueData> read(String threadName, int readCount) throws QueueReadException {
         List<FileQueueData> queueDataList = null;
         boolean isReadLock = false;
 
@@ -525,12 +518,9 @@ public class ManualController implements Controller{
             store.commit();
 
             logger.debug("<대량 읽기 : 성공> = 큐:[{}], 키 정보{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, queueDataList.size());
-        }catch (InterruptedException e){
-            logger.error("<대량 읽기 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
-            throw new InterruptedException();
         }catch (Exception e){
             store.rollback();
-            logger.error("<대량 읽기 : 실패> = 큐:[{}], 롤백 수행, 에러 발생:[{}]", QUEUE_NAME, e.toString());
+            throw new QueueReadException("<대량 읽기 : 실패> = 큐:["+QUEUE_NAME+"], 롤백 수행", e);
         }finally {
             // 데이터 영역 통제 해제
             dataSema.release();
@@ -541,7 +531,7 @@ public class ManualController implements Controller{
     }
 
     @Override
-    public void readCommit(String threadName) throws InterruptedException {
+    public void readCommit(String threadName) throws QueueReadException {
 
         try {
             // 읽기 버퍼 영역 통제
@@ -555,11 +545,8 @@ public class ManualController implements Controller{
             // 커밋
             store.commit();
             logger.debug("<읽기 커밋 : 성공> = 큐:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, fileQueueDataList.size());
-        }catch (InterruptedException e){
-            logger.error("<읽기 커밋 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
-            throw new InterruptedException();
         }catch (Exception e){
-            logger.error("<읽기 커밋 : 실패> = 큐:[{}], 롤백 수행, 에러 발생:[{}]", QUEUE_NAME, e.toString());
+            throw new QueueReadException("<읽기 커밋 : 실패> = 큐:["+QUEUE_NAME+"], 롤백 수행", e);
         }finally {
             // 읽기 버퍼 영역 통제 해제
             readSema.release();
@@ -567,15 +554,12 @@ public class ManualController implements Controller{
     }
 
     public void readRollBack(String threadName){
-
+        List<FileQueueData> fileQueueDataList = readBufferMap.get(threadName);
+        if(ObjectUtils.isEmpty(fileQueueDataList)){
+            logger.warn("<읽기 롤백 : 무시> = 큐 정보:[{}], 키 정보:[{}], 데이터 없음", QUEUE_NAME, threadName);
+            return;
+        }
         try {
-
-            List<FileQueueData> fileQueueDataList = readBufferMap.get(threadName);
-            if(ObjectUtils.isEmpty(fileQueueDataList)){
-                logger.warn("<읽기 롤백 : 무시> = 큐 정보:[{}], 키 정보:[{}], 데이터 없음", QUEUE_NAME, threadName);
-                return;
-            }
-
             // 읽기/데이터 영역 통제
             dataSema.acquire();
             readSema.acquire(MAX_READER);
@@ -593,7 +577,8 @@ public class ManualController implements Controller{
             store.commit();
             logger.debug("<읽기 롤백 : 성공> = 큐:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, fileQueueDataList.size());
         }catch (Exception e){
-            logger.error(e.toString());
+            logger.error("<읽기 롤백 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
+            if(logger.isDebugEnabled())e.printStackTrace();
         }finally {
             readSema.release(MAX_READER);
             dataSema.release();
