@@ -9,7 +9,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.h2.mvstore.DataUtils;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
-import org.h2.mvstore.OffHeapStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +18,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 //TODO:: 메모리 캐쉬 기능 제공 및 캐쉬 파일큐 저장 기능 추가, OOME 일 경우 트랜잭션 이상 현상 체크
@@ -50,23 +48,32 @@ public class ManualController implements Controller{
     private MVMap<String, List<FileQueueData>> readBufferMap = null;
     private final List<Long> dataKeyList = new ArrayList<Long>();
 
+    // 처리 키 추출
     private final AtomicLong transactionIndex = new AtomicLong(1);
+    // 그룹 키 추출
     private final AtomicLong groupIndex = new AtomicLong(1);
 
-
+    // 파일큐 전체 경로 정보(파일 큐 포함) - QUEUE_PATH + QUEUE_NAME
     private final String QUEUE;
+    // 파일큐 경로 정보(부모 디렉토리 경로)
     private final String QUEUE_PATH;
+    // 파일큐 명
     private final String QUEUE_NAME;
-    private final String ENCRYPT_KEY ="ENCRYPT_KEY";
 
+    // 파일 암호화
+    private final String ENCRYPT_KEY ="ENCRYPT_KEY";
+    // 읽기 버퍼
     private final String READ_BUFFER ="READ_BUFFER_";
 
     private long openTime = 0;
     private long lastInTime = 0;
     private long lastOutTime = 0;
 
-    private long inputCnt =0;
-    private long outputCnt =0;
+    // 유입 건수
+    private final AtomicLong INPUT_COUNT = new AtomicLong(0);
+
+    // 처리 건수
+    private final AtomicLong OUTPUT_COUNT = new AtomicLong(0);
 
     // 파일 큐 위치/이름 정보
     public ManualController(String queue) {
@@ -385,8 +392,9 @@ public class ManualController implements Controller{
                 dataKeyList.add(innerKey);
             }
             store.commit();
+            addCount(fileQueueDataList.size(), INPUT_COUNT);
+            lastInTime = System.currentTimeMillis();
             logger.debug("<큐 쓰기 : 성공> = 큐 정보:[{}], 쓰레드 명:[{}],데이타 갯수:[{}]", QUEUE_NAME, Thread.currentThread().getName(), fileQueueDataList.size());
-            fileQueueDataList = null;
         }catch (Exception e){
             // 벌크 처리 경우만 STORE 롤백 수행
             if(isBulk) {
@@ -531,6 +539,76 @@ public class ManualController implements Controller{
     }
 
     @Override
+    public List<String> readAll(){
+        return new ArrayList<>(dataMap.values());
+    }
+
+    @Override
+    public void removeOne() throws QueueReadException {
+        boolean isReadLock = false;
+        try {
+            // 데이터 영역 통제
+            dataSema.acquire();
+
+            // 데이터 영역 데이터 건수 취득
+            int mapSize = dataMap.size();
+            if(mapSize < 1){
+                logger.info("<큐 최신 데이터 제거 : 무시> = 큐 정보:[{}], 데이터 없음", QUEUE_NAME);
+                return;
+            }
+
+            // 데이터 영역 키<>데이터 동기화
+            realignKey(dataKeyList, dataMap);
+
+            // 읽기 영역 통제 - READ COMMIT/ROLLBACK 통제(STORE 트랜잭션 이슈)
+            readSema.acquire(MAX_READER);
+            isReadLock = true;
+
+            // 데이터 영역에서 1건 데이터 삭제 및 추출
+            long transKey = dataKeyList.remove(0);
+            String data = dataMap.remove(transKey);
+
+            store.commit();
+            logger.info("<큐 최신 데이터 제거 : 성공> = 큐:[{}], 데이터내용:[{}]", QUEUE_NAME, data);
+        }catch (Exception e){
+            store.rollback();
+            throw new QueueReadException("<대량 읽기 : 실패> = 큐:["+QUEUE_NAME+"], 롤백 수행", e);
+        }finally {
+            // 데이터 영역 통제 해제
+            dataSema.release();
+            // 벌크 처리 경우 - 읽기 영역 통제 해제
+            if(isReadLock)readSema.release(MAX_READER);
+        }
+    }
+
+    @Override
+    public void removeReadBufferOne(String threadName) throws QueueReadException {
+        try {
+            // 읽기 버퍼 영역 통제
+            readSema.acquire();
+            List<FileQueueData> fileQueueDataList = readBufferMap.remove(threadName);
+            if(ObjectUtils.isEmpty(fileQueueDataList)){
+                logger.warn("<읽기 버퍼 제거 : 무시> = 큐:[{}], 데이터 없음", QUEUE_NAME);
+                return;
+            }
+
+            // 커밋
+            store.commit();
+            logger.info("<읽기 버퍼 제거 : 성공> = 큐:[{}], 데이터 갯수:[{}]", QUEUE_NAME, fileQueueDataList.size());
+            for(FileQueueData queueData:fileQueueDataList){
+                logger.info("삭제 데이터:{[]}", queueData.toString());
+            }
+            addCount(fileQueueDataList.size(), OUTPUT_COUNT);
+            lastOutTime = System.currentTimeMillis();
+        }catch (Exception e){
+            throw new QueueReadException("<읽기 커밋 : 실패> = 큐:["+QUEUE_NAME+"], 롤백 수행", e);
+        }finally {
+            // 읽기 버퍼 영역 통제 해제
+            readSema.release();
+        }
+    }
+
+    @Override
     public void readCommit(String threadName) throws QueueReadException {
 
         try {
@@ -545,6 +623,8 @@ public class ManualController implements Controller{
             // 커밋
             store.commit();
             logger.debug("<읽기 커밋 : 성공> = 큐:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, fileQueueDataList.size());
+            addCount(fileQueueDataList.size(), OUTPUT_COUNT);
+            lastOutTime = System.currentTimeMillis();
         }catch (Exception e){
             throw new QueueReadException("<읽기 커밋 : 실패> = 큐:["+QUEUE_NAME+"], 롤백 수행", e);
         }finally {
@@ -585,10 +665,42 @@ public class ManualController implements Controller{
         }
     }
 
+    private void addCount(long count, AtomicLong atomicLong){
+        synchronized (atomicLong) {
+            long currentValue = atomicLong.get();
+            long newValue = (currentValue + count > Long.MAX_VALUE) ? count : currentValue + count;
+            atomicLong.set(newValue);
+        }
+    }
+
+    public long getInputCount(){
+        return INPUT_COUNT.get();
+    }
+    public long getOutputCount(){
+        return OUTPUT_COUNT.get();
+    }
+
+    public long getLastInTime(){
+        return lastInTime;
+    }
+    public long getLastOutTime(){
+        return lastOutTime;
+    }
+
     @Override
     public boolean isOk() {
-        if((store == null || dataMap == null || store.isClosed() || dataMap.isClosed()))return false;
-        if(readBufferMap == null || readBufferMap.isClosed()) return  false;
+        if((store == null || dataMap == null || store.isClosed() || dataMap.isClosed())){
+            logger.error("{} 파일큐 스토어가 유효하지 않은 상태");
+            return false;
+        }
+        if(readBufferMap == null || readBufferMap.isClosed()) {
+            logger.error("{} 읽기 버퍼가 유효하지 않은 상태");
+            return  false;
+        }
+        if(!Files.exists(Paths.get(QUEUE))){
+            logger.error("{} 파일큐를 찾을 수 없음 - 삭제 됨");
+            return false;
+        }
         return true;
     }
 

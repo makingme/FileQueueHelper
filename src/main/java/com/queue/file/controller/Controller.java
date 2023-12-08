@@ -5,8 +5,6 @@ import com.queue.file.exception.QueueReadException;
 import com.queue.file.exception.QueueWriteException;
 import com.queue.file.vo.FileQueueData;
 import org.h2.mvstore.MVMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -34,6 +32,12 @@ public interface Controller {
     List<FileQueueData> read(String threadName) throws QueueReadException;
 
     List<FileQueueData> read(String threadName, int readCount) throws QueueReadException;
+
+    List<String> readAll();
+
+    void removeOne() throws QueueReadException;
+
+    void removeReadBufferOne(String threadName) throws QueueReadException;
 
     void readCommit(String threadName) throws QueueReadException;
 
