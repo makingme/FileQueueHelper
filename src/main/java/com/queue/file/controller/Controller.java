@@ -39,6 +39,14 @@ public interface Controller {
 
     void removeReadBufferOne(String threadName) throws QueueReadException;
 
+    void clearData() throws QueueReadException;
+    void clearReadBuffer() throws QueueReadException;
+
+    default void clearAll() throws QueueReadException{
+        clearData();
+        clearReadBuffer();
+    }
+
     void readCommit(String threadName) throws QueueReadException;
 
     boolean isOk();

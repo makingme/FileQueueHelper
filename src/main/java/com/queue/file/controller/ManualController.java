@@ -242,7 +242,7 @@ public class ManualController implements Controller{
                 logger.info("<큐 오픈 : 성공> = 큐:[{}], 큐 설정 정보 :[{}]", QUEUE_NAME, builder.toString());
             }catch(Exception e) {
                 logger.error("<큐 오픈 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.getMessage());
-                e.printStackTrace();
+                logger.error("<큐 오픈 : 실패> = 에러 상세",  e);
                 return null;
             }
         }
@@ -609,6 +609,43 @@ public class ManualController implements Controller{
     }
 
     @Override
+    public void clearData() throws QueueReadException {
+        try{
+            // 데이터 영역 통제
+            dataSema.acquire();
+            // 읽기 영역 통제 - READ COMMIT/ROLLBACK 통제(STORE 트랜잭션 이슈)
+            readSema.acquire(MAX_READER);
+            // 데이터 클렌징
+            dataMap.clear();
+            // 데이터 키 클렌징
+            dataKeyList.clear();
+            // 저장
+            store.commit();
+        }catch (Exception e){
+            throw new QueueReadException("<데이터 영역 클렌징 : 실패> = 큐:["+QUEUE_NAME+"]", e);
+        }finally {
+            // 데이터 영역 통제 해제
+            dataSema.release();
+            // 벌크 처리 경우 - 읽기 영역 통제 해제
+            readSema.release(MAX_READER);
+        }
+    }
+
+    @Override
+    public void clearReadBuffer() throws QueueReadException {
+        try{
+            // 읽기 영역 통제 - READ COMMIT/ROLLBACK 통제(STORE 트랜잭션 이슈)
+            readSema.acquire(MAX_READER);
+            readBufferMap.clear();
+        }catch (Exception e){
+            throw new QueueReadException("<읽기 버퍼 클렌징 : 실패> = 큐:["+QUEUE_NAME+"]", e);
+        }finally {
+            // 벌크 처리 경우 - 읽기 영역 통제 해제
+            readSema.release(MAX_READER);
+        }
+    }
+
+    @Override
     public void readCommit(String threadName) throws QueueReadException {
 
         try {
@@ -658,7 +695,9 @@ public class ManualController implements Controller{
             logger.debug("<읽기 롤백 : 성공> = 큐:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, fileQueueDataList.size());
         }catch (Exception e){
             logger.error("<읽기 롤백 : 실패> = 큐:[{}], 에러 발생:[{}]", QUEUE_NAME, e.toString());
-            if(logger.isDebugEnabled())e.printStackTrace();
+            if(logger.isDebugEnabled()){
+                logger.error("<읽기 롤백 : 실패> = 에러 상세", e);
+            }
         }finally {
             readSema.release(MAX_READER);
             dataSema.release();
@@ -717,7 +756,7 @@ public class ManualController implements Controller{
 
     @Override
     public void close() {
-        if(store != null) {
+        if(store != null && !store.isClosed()) {
             store.close();
         }
         if(dataKeyList != null) {
