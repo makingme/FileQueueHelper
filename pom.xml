@@ -7,8 +7,8 @@
     <packaging>jar</packaging>
     <groupId>io.github.makingme</groupId>
     <artifactId>FileQueueHelper</artifactId>
-    <version>1.0.5</version>
-    <!-- 1.0.3-SNAPSHOT -->
+    <version>1.0.6</version>
+    <!-- 1.0.X-SNAPSHOT -->
 
     <distributionManagement>
         <snapshotRepository>

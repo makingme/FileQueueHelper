@@ -13,7 +13,7 @@ public class FileQueueData implements Serializable {
 
 	private long groupTransactionKey;
 	private long transactionKey;
-	private long createTime;
+	private final long createTime;
 	private Map<String, Object> data;
 
 	public FileQueueData(Map<String, Object> data) {
