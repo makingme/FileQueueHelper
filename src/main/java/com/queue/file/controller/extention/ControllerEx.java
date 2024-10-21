@@ -45,14 +45,15 @@ public interface ControllerEx {
                         System.currentTimeMillis() + FileQueueDataEx.DELIMITER;
         writeQueueData(Collections.singletonList(storeData));
     }
+
     // 대량 쓰기
-    default void write(List<Object> dataList) throws QueueWriteException{
-        write("", dataList);
+    default void writeBulk(List<Object> dataList) throws QueueWriteException{
+        writeBulk("", dataList);
     }
-    default void write(String tag, List<Object> dataList) throws QueueWriteException{
-        write(tag, "", dataList);
+    default void writeBulk(String tag, List<Object> dataList) throws QueueWriteException{
+        writeBulk(tag, "", dataList);
     }
-    default void write(String tag, String partition, List<Object> dataList) throws QueueWriteException{
+    default void writeBulk(String tag, String partition, List<Object> dataList) throws QueueWriteException{
         if(ObjectUtils.isEmpty(dataList)){
             return;
         }
