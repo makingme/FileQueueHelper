@@ -21,9 +21,8 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
-public abstract class AbstractController {
+public abstract class AbstractController implements ControllerEx{
     protected final Logger logger = LoggerFactory.getLogger(this.getClass().getName());
-    protected final Gson gson = new Gson();
 
     private final int TRANSACTION_INDEX =0;
     private final int GROUP_INDEX =1;
@@ -143,6 +142,7 @@ public abstract class AbstractController {
         LIMIT_SIZE = limit;
     }
 
+    @Override
     public boolean validate(){
         // 파일큐 경로 정보 유무 확인
         if(StringUtils.isBlank(QUEUE_PATH)){
@@ -176,6 +176,7 @@ public abstract class AbstractController {
         return true;
     }
 
+    @Override
     public synchronized boolean open() {
         // 필수 정보 검증
         if(!validate()){
@@ -270,6 +271,7 @@ public abstract class AbstractController {
         return store;
     }
 
+    @Override
     public long realignKey(List<Long> keyList, MVMap<Long, String> dataMap) {
         // 데이터 영역 사이즈 취득
         int mapSize = dataMap.size();
@@ -298,75 +300,25 @@ public abstract class AbstractController {
         return maxKey;
     }
 
+    @Override
     public boolean isOk() {
         if((store == null || dataMap == null || store.isClosed() || dataMap.isClosed())){
-            logger.error("{} 파일큐 스토어가 유효하지 않은 상태", QUEUE_NAME);
+            logger.error("{} 파일큐 스토어 또는 데이터 영역이 유효하지 않은 상태", QUEUE_NAME);
             return false;
         }
         if(!Files.exists(Paths.get(QUEUE))){
             logger.error("{} 파일큐를 찾을 수 없음 - 삭제 됨", QUEUE);
             return false;
         }
+        if(manualCommitMode && readBufferMap.isClosed()){
+            logger.error("{} 파일큐 Read Buffer 영역이 유효하지 않은 상태", QUEUE_NAME);
+            return false;
+        }
         return true;
     }
 
-    // 단건 쓰기
-    public void write(Object dataObject) throws QueueWriteException {
-        write("", dataObject);
-    }
-
-    // 단건 쓰기
-    public void write(String tag, Object dataObject) throws QueueWriteException {
-        write(tag, "", dataObject);
-    }
-
-    // 단건 쓰기
-    public void write(String tag, String partition, Object dataObject) throws QueueWriteException {
-        if(ObjectUtils.isEmpty(dataObject)){
-            return;
-        }
-        long transactionGroupKey = 0;
-        String bodyData = gson.toJson(dataObject);
-        String storeData =
-
-                partition + FileQueueDataEx.DELIMITER +
-                tag + FileQueueDataEx.DELIMITER +
-                bodyData + FileQueueDataEx.DELIMITER +
-                System.currentTimeMillis() + FileQueueDataEx.DELIMITER;
-        writeQueueData(Collections.singletonList(storeData));
-    }
-
-    // 대량 쓰기
-    public void write(List<Object> dataList) throws QueueWriteException {
-       write("", dataList);
-    }
-
-    //대량 쓰기
-    public void write(String tag, List<Object> dataList) throws QueueWriteException {
-        write(tag, "", dataList);
-    }
-
-    // 대량 쓰기
-    public void write(String tag, String partition, List<Object> dataList) throws QueueWriteException {
-        if(ObjectUtils.isEmpty(dataList)){
-            return;
-        }
-
-        List<String> storeDataList = new ArrayList<>(dataList.size());
-        long now = System.currentTimeMillis();
-        for(Object object : dataList){
-            String bodyData = gson.toJson(object);
-            String storeData =
-                    partition + FileQueueDataEx.DELIMITER +
-                            tag + FileQueueDataEx.DELIMITER +
-                            bodyData + FileQueueDataEx.DELIMITER +
-                            now + FileQueueDataEx.DELIMITER;
-            storeDataList.add(storeData);
-        }
-        writeQueueData(storeDataList);
-    }
-
-    private synchronized void writeQueueData(List<String> storeDataList) throws QueueWriteException {
+    @Override
+    public synchronized void writeQueueData(List<String> storeDataList) throws QueueWriteException {
         if(ObjectUtils.isEmpty(storeDataList)){
             return;
         }
@@ -401,14 +353,7 @@ public abstract class AbstractController {
         }
     }
 
-    public List<FileQueueDataEx> read() throws QueueReadException {
-        return read("",1);
-    }
-
-    public List<FileQueueDataEx> read(String threadName) throws QueueReadException {
-        return read("",1);
-    }
-
+    @Override
     public synchronized List<FileQueueDataEx> read(String threadName, int requestCount) throws QueueReadException {
         List<FileQueueDataEx> queueDataList = null;
         try {
@@ -494,10 +439,12 @@ public abstract class AbstractController {
         });
     }
 
+    @Override
     public List<String> allData(){
         return new ArrayList<>(dataMap.values());
     }
 
+    @Override
     public List<List<FileQueueDataEx>> allReadBuffer(){
         if(readBufferMap==null || !manualCommitMode){
             return null;
@@ -505,6 +452,7 @@ public abstract class AbstractController {
         return new ArrayList<>(readBufferMap.values());
     }
 
+    @Override
     public synchronized FileQueueDataEx removeOne() throws QueueReadException {
         FileQueueDataEx fData = null;
         try {
@@ -547,6 +495,7 @@ public abstract class AbstractController {
         return fData;
     }
 
+    @Override
     public synchronized List<FileQueueDataEx> removeReadBufferOne(String threadName) throws QueueReadException {
         List<FileQueueDataEx> fileQueueDataList = null;
         if(readBufferMap==null || !manualCommitMode){
@@ -574,6 +523,7 @@ public abstract class AbstractController {
         return fileQueueDataList;
     }
 
+    @Override
     public synchronized void clear() throws QueueReadException {
         try{
             // 데이터 클렌징
@@ -590,6 +540,7 @@ public abstract class AbstractController {
         }
     }
 
+    @Override
     public void close() {
         if(store != null && !store.isClosed()) {
             store.commit();
@@ -605,14 +556,12 @@ public abstract class AbstractController {
         }
         return queueSize;
     }
-
     public long getInputCount(){
         return INPUT_COUNT.get();
     }
     public long getOutputCount(){
         return OUTPUT_COUNT.get();
     }
-
     public long getLastInTime(){
         return lastInTime;
     }
