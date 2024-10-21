@@ -80,6 +80,7 @@ public interface ControllerEx {
         return read(threadName,1);
     }
     List<FileQueueDataEx> read(String threadName, int requestCount) throws QueueReadException;
+    void readCommit(String threadName) throws QueueReadException;
 
     List<String> allData();
     List<List<FileQueueDataEx>> allReadBuffer();

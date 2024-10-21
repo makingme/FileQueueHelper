@@ -3,6 +3,7 @@ package com.queue.file.controller.extention;
 import com.google.gson.Gson;
 import com.queue.file.exception.QueueReadException;
 import com.queue.file.exception.QueueWriteException;
+import com.queue.file.vo.FileQueueData;
 import com.queue.file.vo.extention.FileQueueCustomConfigVo;
 import com.queue.file.vo.extention.FileQueueDataEx;
 import org.apache.commons.lang3.ObjectUtils;
@@ -409,6 +410,9 @@ public abstract class AbstractController implements ControllerEx{
                 }
                 store.commit();
             }
+            if(!manualCommitMode){
+                addCount(queueDataList.size(), OUTPUT_COUNT);
+            }
             lastOutTime = System.currentTimeMillis();
             logger.debug("<읽기 : 성공> = 큐:[{}], 데이터 갯수:[{}]", QUEUE_NAME, queueDataList.size());
         }catch (Exception e){
@@ -419,6 +423,25 @@ public abstract class AbstractController implements ControllerEx{
             throw new QueueReadException("<읽기 : 실패> = 큐:["+QUEUE_NAME+"]", e);
         }
         return queueDataList;
+    }
+
+    @Override
+    public synchronized void readCommit(String threadName) throws QueueReadException {
+
+        try {
+            List<FileQueueDataEx> fileQueueDataList = readBufferMap.remove(threadName);
+            if(ObjectUtils.isEmpty(fileQueueDataList)){
+                logger.warn("<버퍼 읽기 커밋: 무시> = 큐:[{}], 키 정보:[{}], 빈 데이터", QUEUE_NAME, threadName);
+                return;
+            }
+            logger.debug("<버퍼 읽기 커밋 : 성공> = 큐:[{}], 키 정보:[{}], 데이터 갯수:[{}]", QUEUE_NAME, threadName, fileQueueDataList.size());
+            addCount(fileQueueDataList.size(), OUTPUT_COUNT);
+            lastOutTime = System.currentTimeMillis();
+        }catch (Exception e){
+            throw new QueueReadException("<버퍼 읽기 커밋 : 실패> = 큐:["+QUEUE_NAME+"]", e);
+        }finally {
+            store.commit();
+        }
     }
 
     private long getTransactionKey() {
@@ -575,10 +598,12 @@ public abstract class AbstractController implements ControllerEx{
 
     public int getAutoCommitDelay() { return autoCommitDelay; }
     public int getAutoCommitMemory() { return autoCommitMemory; }
-    public boolean isBulkCommit() { return bulkCommit; }
     public int getBulkSize() { return bulkSize; }
     public int getCacheSize() { return cacheSize; }
-
     public long getWaitTime() { return waitTime; }
+
+    public boolean isBulkCommit() { return bulkCommit; }
+    public boolean isManualCommitMode() { return manualCommitMode; }
+
     public void setWaitTime(long waitTime) { this.waitTime = waitTime; }
 }
