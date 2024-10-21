@@ -88,4 +88,5 @@ public interface ControllerEx {
     List<FileQueueDataEx> removeReadBufferOne(String threadName) throws QueueReadException;
     void clear() throws QueueReadException;
     void close();
+    void commit();
 }

@@ -257,6 +257,9 @@ public abstract class AbstractController implements ControllerEx{
                 String configInfo = DataUtils.appendMap(new StringBuilder(), configMap).toString();
                 MVStore.Builder builder = MVStore.Builder.fromString(configInfo);
                 if(encryptMode)builder.encryptionKey(ENCRYPT_KEY.toCharArray());
+                // 스토어 오픈
+                store = builder.open();
+                
                 //자동 커밋 시간 ms - default 1000ms
                 store.setAutoCommitDelay(autoCommitDelay);
                 //할당 메모리 사이즈 조정 - default 16mb
@@ -427,7 +430,9 @@ public abstract class AbstractController implements ControllerEx{
 
     @Override
     public synchronized void readCommit(String threadName) throws QueueReadException {
-
+        if(!manualCommitMode || readBufferMap == null || readBufferMap.isEmpty()){
+            return;
+        }
         try {
             List<FileQueueDataEx> fileQueueDataList = readBufferMap.remove(threadName);
             if(ObjectUtils.isEmpty(fileQueueDataList)){
@@ -570,6 +575,13 @@ public abstract class AbstractController implements ControllerEx{
             store.close();
         }
         dataKeyList.clear();
+    }
+
+    @Override
+    public void commit() {
+        if(store != null && !store.isClosed()) {
+            store.commit();
+        }
     }
 
     public int getQueueSize() {
