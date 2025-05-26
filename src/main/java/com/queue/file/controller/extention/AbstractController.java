@@ -77,6 +77,7 @@ public abstract class AbstractController implements ControllerEx{
 
     private long openTime = 0;
     private long lastInTime = 0;
+    private long lastTouch = 0;
     private long lastOutTime = 0;
     private long waitTime = 2000;
 
@@ -199,8 +200,8 @@ public abstract class AbstractController implements ControllerEx{
 
             // 읽기 버퍼 스키마 오픈
             if(manualCommitMode){
-                logger.info("<큐 활성화 : 정보> = 버퍼 큐 이름:[{}], 안정성 모드", READ_BUFFER);
                 readBufferMap = store.openMap(READ_BUFFER+QUEUE_NAME);
+                logger.info("<큐 활성화 : 정보> = 버퍼 큐 이름:[{}], 안정성 모드", READ_BUFFER+QUEUE_NAME);
             }
 
             // 데이터 스키마 오픈
@@ -249,7 +250,7 @@ public abstract class AbstractController implements ControllerEx{
             bulkSize = configVo.getBulkSize();
             bulkCommit = configVo.isBulkCommit();
             cacheSize = configVo.getCacheSize();
-            if(manualCommitMode)autoCommitDelay =0;
+            //if(manualCommitMode)autoCommitDelay =0;
             // 자동 커밋 메모리 사이즈 - default 19mb
             configMap.put("autoCommitBufferSize", autoCommitMemory);
 
@@ -328,15 +329,17 @@ public abstract class AbstractController implements ControllerEx{
         }
         boolean isBulk = storeDataList.size() >= bulkSize;
         long groupKey = getGroupKey();
+        boolean isCommited = false;
         try {
             for (String storeData : storeDataList){
                 long innerKey = getTransactionKey();
                 dataMap.put(innerKey, innerKey+FileQueueDataEx.DELIMITER+groupKey+FileQueueDataEx.DELIMITER+storeData);
                 dataKeyList.add(innerKey);
             }
-            // 벌크 커밋모드 또는 수동 커밋 모드
-            if((isBulk && bulkCommit)|| manualCommitMode){
+            // 벌크 커밋모드 =
+            if((isBulk && bulkCommit)){
                 store.commit();
+                isCommited = true;
             }
 
             lastInTime = System.currentTimeMillis();
@@ -349,7 +352,7 @@ public abstract class AbstractController implements ControllerEx{
                 notify();
             }
         }catch (Exception e){
-            if(manualCommitMode){
+            if(isCommited){
                 logger.error("<쓰기 : 실패> = 큐:[{}], 롤백 수행", QUEUE_NAME);
                 store.rollback();
             }
@@ -360,6 +363,8 @@ public abstract class AbstractController implements ControllerEx{
     @Override
     public synchronized List<FileQueueDataEx> read(String threadName, int requestCount) throws QueueReadException {
         List<FileQueueDataEx> queueDataList = null;
+        lastTouch = System.currentTimeMillis();
+        boolean isCommited = false;
         try {
             if(manualCommitMode){
                 // 읽기 영역에 기존 데이터가 있는지 확인 후 진행
@@ -407,19 +412,20 @@ public abstract class AbstractController implements ControllerEx{
                 FileQueueDataEx fData = new FileQueueDataEx(transKey, groupKey, dataArray[PARTITION_INDEX], dataArray[TAG_INDEX], dataArray[BODY_INDEX], time);
                 queueDataList.add(fData);
             }
-            if((isBulk && bulkCommit) || manualCommitMode){
-                if(manualCommitMode){
-                    readBufferMap.put(threadName, queueDataList);
-                }
+            if(manualCommitMode){
+                readBufferMap.put(threadName, queueDataList);
+            }
+            if(isBulk && bulkCommit){
                 store.commit();
+                isCommited = true;
             }
             if(!manualCommitMode){
                 addCount(queueDataList.size(), OUTPUT_COUNT);
+                lastOutTime = System.currentTimeMillis();
             }
-            lastOutTime = System.currentTimeMillis();
             logger.debug("<읽기 : 성공> = 큐:[{}], 데이터 갯수:[{}]", QUEUE_NAME, queueDataList.size());
         }catch (Exception e){
-            if(manualCommitMode){
+            if(isCommited){
                 logger.error("<읽기 : 실패> = 큐:[{}], 롤백 수행", QUEUE_NAME);
                 store.rollback();
             }
@@ -444,8 +450,6 @@ public abstract class AbstractController implements ControllerEx{
             lastOutTime = System.currentTimeMillis();
         }catch (Exception e){
             throw new QueueReadException("<버퍼 읽기 커밋 : 실패> = 큐:["+QUEUE_NAME+"]", e);
-        }finally {
-            store.commit();
         }
     }
 
@@ -591,17 +595,18 @@ public abstract class AbstractController implements ControllerEx{
         }
         return queueSize;
     }
+
     public long getInputCount(){
         return INPUT_COUNT.get();
     }
-    public long getOutputCount(){
-        return OUTPUT_COUNT.get();
-    }
+    public long getOutputCount(){return OUTPUT_COUNT.get(); }
     public long getLastInTime(){
         return lastInTime;
     }
     public long getLastOutTime(){ return lastOutTime;}
     public long getOpenTime() { return openTime; }
+    public long getLastTouch() { return lastTouch; }
+    public void setLastTouch(long lastTouch) { this.lastTouch = lastTouch; }
 
     public int getLIMIT_SIZE() { return LIMIT_SIZE; }
     public String getQUEUE() { return QUEUE; }
