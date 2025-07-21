@@ -163,15 +163,11 @@ public class DataAccess {
     }
 
     public FileQueueData read(String partitionName, String executorName) throws QueueException {
-        List<FileQueueData> fileQueueDataList = readList(partitionName, executorName, 1);
+        List<FileQueueData> fileQueueDataList = read(partitionName, executorName, 1);
         return (fileQueueDataList == null || fileQueueDataList.isEmpty()) ? null : fileQueueDataList.get(0);
     }
 
     public List<FileQueueData> read(String partitionName, String executorName, int requestCount) throws QueueException {
-        return readList(partitionName, executorName, requestCount);
-    }
-
-    private List<FileQueueData> readList(String partitionName, String executorName, int requestCount) throws QueueException {
         if (storeInfo.getStoreOpenTime() == null) {
             throw new QueueReadException("open 되지 않음 - open() 호출 필요");
         }
