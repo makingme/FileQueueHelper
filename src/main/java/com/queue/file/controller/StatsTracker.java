@@ -25,7 +25,7 @@ public class StatsTracker {
     }
 
     public void keepRecord(String partitionName, String executorName, long count, ActionType actionType) {
-        InOutStorage ioStorage = parttitionInOutInfoMap.get(partitionName);
+        InOutStorage ioStorage = parttitionInOutInfoMap.computeIfAbsent(partitionName, k -> new InOutStorage());
         switch (actionType) {
             case INPUT:
                 addTOTAL_INPUT_COUNT(count);
