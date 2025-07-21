@@ -1,4 +1,4 @@
-package com.queue.file.vo.extention;
+package com.queue.file.vo;
 
 public class FileQueueCustomConfigVo {
     private int autoCommitDelay = 1000;
@@ -6,18 +6,14 @@ public class FileQueueCustomConfigVo {
     private int cacheSize = 16;
     private int bulkSize = 10;
 
-    private long waitTime = 2000;
     private boolean bulkCommit = false;
-    private boolean manualCommitMode = false;
+    private boolean stableMode = false;
 
     public int getAutoCommitDelay() { return autoCommitDelay; }
     public void setAutoCommitDelay(int autoCommitDelay) { this.autoCommitDelay = autoCommitDelay; }
 
     public int getAutoCommitMemory() { return autoCommitMemory; }
     public void setAutoCommitMemory(int autoCommitMemory) { this.autoCommitMemory = autoCommitMemory; }
-
-    public long getWaitTime() { return waitTime; }
-    public void setWaitTime(long waitTime) { this.waitTime = waitTime; }
 
     public boolean isBulkCommit() { return bulkCommit; }
     public void setBulkCommit(boolean bulkCommit) { this.bulkCommit = bulkCommit; }
@@ -28,16 +24,7 @@ public class FileQueueCustomConfigVo {
     public int getBulkSize() { return bulkSize; }
     public void setBulkSize(int bulkSize) { this.bulkSize = bulkSize; }
 
-    public boolean isManualCommitMode() { return manualCommitMode; }
-    public void setManualCommitMode(boolean manualCommitMode) { this.manualCommitMode = manualCommitMode; }
-
-    public void setStableMode(){
-        manualCommitMode = true;
-        autoCommitDelay = 0;
-    }
-
-    public void setBulkCommitMode(){
-        bulkCommit = true;
-    }
+    public boolean isStableMode() { return stableMode; }
+    public void setStableMode(boolean stableMode) { this.stableMode = stableMode; }
 
 }

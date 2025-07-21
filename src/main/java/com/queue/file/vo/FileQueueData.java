@@ -1,96 +1,71 @@
 package com.queue.file.vo;
 
-import com.google.gson.Gson;
-import org.apache.commons.lang3.StringUtils;
-
 import java.io.Serializable;
-import java.util.Map;
 
 public class FileQueueData implements Serializable {
-	private final static Gson gson = new Gson();
+	private static final long serialVersionUID = 1L;
+
 	private String partition = "";
 	private String tag = "";
+	private String data;
 
-	private long groupTransactionKey;
-	private long transactionKey;
+	private Long groupTransactionKey;
+	private Long transactionKey;
 	private final long createTime;
-	private Map<String, Object> data;
 
-	public FileQueueData(Map<String, Object> data) {
-		this.data = data;
-		this.createTime = System.currentTimeMillis();
+	public FileQueueData(String data) {
+		this(0, 0, data);
 	}
-
 	public FileQueueData(long transactionKey, long createTime) {
-		this.transactionKey = transactionKey;
-		this.createTime = createTime;
+		this(transactionKey, 0, "", "", "", createTime);
+	}
+	public FileQueueData(long transactionKey, String data) {
+		this(transactionKey, 0, "", "", data, System.currentTimeMillis());
+	}
+	public FileQueueData(long transactionKey, long groupTransactionKey, String data) {
+		this(transactionKey, groupTransactionKey, "", "", data, System.currentTimeMillis());
+	}
+	public FileQueueData(String tag, String data) {
+		this("", tag, data);
+	}
+	public FileQueueData(String partition, String tag, String data) {
+		this(0, 0, partition, tag, data, System.currentTimeMillis());
+	}
+	public FileQueueData(long transactionKey, String partition, String tag, String data) {
+		this(transactionKey, 0, partition, tag, data, System.currentTimeMillis());
+	}
+	public FileQueueData(String partition, String tag, String data, Long time) {
+		this(0, 0, partition, tag, data, time);
 	}
 
-	public FileQueueData(long transactionKey, Map<String, Object> data) {
+	public FileQueueData(long transactionKey, long groupTransactionKey, String partition, String tag, String data, Long time) {
 		this.transactionKey = transactionKey;
-		this.data = data;
-		this.createTime = System.currentTimeMillis();
-	}
-
-	public FileQueueData(String tag, Map<String, Object> data) {
-		this.tag = tag;
-		this.data = data;
-		this.createTime = System.currentTimeMillis();
-	}
-	public FileQueueData(String partition, String tag, Map<String, Object> data) {
+		this.groupTransactionKey = groupTransactionKey;
 		this.partition = partition;
 		this.tag = tag;
 		this.data = data;
-		this.createTime = System.currentTimeMillis();
-	}
-
-	public FileQueueData(String partition, String tag, Map<String, Object> data, String time) {
-		this.partition = partition;
-		this.tag = tag;
-		this.data = data;
-		if(StringUtils.isBlank(time)){
+		if(time == null || time <= 0){
 			this.createTime = System.currentTimeMillis();
 		}else{
-			this.createTime = Long.parseLong(time.replaceAll("\\D", "0"));
+			this.createTime = time;
 		}
 	}
 
 	public String getPartition() {return partition;}
+	public void setPartition(String partition) { this.partition = partition; }
 
 	public String getTag() { return tag;}
+	public void setTag(String tag) { this.tag = tag; }
 
 	public Long getTransactionKey() {return transactionKey;}
 	public void setTransactionKey(Long transactionKey) {this.transactionKey = transactionKey;}
 
 	public Long getGroupTransactionKey() {return groupTransactionKey;}
-
 	public void setGroupTransactionKey(Long groupTransactionKey) {this.groupTransactionKey = groupTransactionKey;}
 
 	public Long getCreateTime() { return createTime; }
 
-	public Map<String, Object> getData() {return data;}
-
-
-	public static boolean isValid(String lowData){
-
-		if( StringUtils.isBlank(lowData) || lowData.startsWith("@{")== false || lowData.endsWith("}@") == false){
-			return false;
-		}
-		return true;
-	}
-
-	@Override
-	public String toString() {
-		return new StringBuilder().append("@").append(gson.toJson(this)).append("@").toString();
-	}
-
-
-
-	public static FileQueueData fromString(String lowData){
-		if(isValid(lowData) == false) return null;
-		String data = lowData.substring(1, lowData.length()-1);
-
-		return gson.fromJson(data, FileQueueData.class);
-	}
+	public String getData() {return data;}
+	public void setData(String data) { this.data = data; }
 
 }

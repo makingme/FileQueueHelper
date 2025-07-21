@@ -1,6 +1,6 @@
 package com.queue.file.exception;
 
-public class QueueWriteException extends Exception{
+public class QueueWriteException extends QueueException{
     public QueueWriteException() {
         super("큐 쓰기 중 에러 발생");
     }

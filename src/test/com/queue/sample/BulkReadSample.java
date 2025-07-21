@@ -1,23 +1,24 @@
 package com.queue.file.sample;
 
-import com.queue.file.controller.Controller;
+import com.queue.file.controller.BaseController;
 import com.queue.file.exception.QueueReadException;
 import com.queue.file.vo.FileQueueData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ReadSample implements Runnable{
+public class BulkReadSample implements Runnable{
+
     private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
-    private final Controller controller;
+    private final BaseController controller;
 
     private final static int MAX = 10000;
     private boolean isRun = true;
-    public ReadSample(Controller controller) {
+
+    public BulkReadSample(BaseController controller) {
         this.controller = controller;
     }
 
@@ -30,14 +31,13 @@ public class ReadSample implements Runnable{
 
     @Override
     public void run() {
-
         String name = Thread.currentThread().getName();
         long startTime = System.currentTimeMillis();
         int prcsCnt = 0;
         int sleepCnt = 0;
-        while (controller.isOk() && isRun){
+        while (isRun){
             try {
-                List<FileQueueData> fDataList = controller.read(name);
+                List<FileQueueData> fDataList = controller.read(name, 200);
                 if(fDataList != null){
                     for(FileQueueData fData : fDataList){
                         //logger.info("<데이터 소진> - 데이터: [{}]", fData.getData());

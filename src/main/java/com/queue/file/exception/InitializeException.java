@@ -1,6 +1,6 @@
 package com.queue.file.exception;
 
-public class InitializeException extends Exception{
+public class InitializeException extends RuntimeException{
     public InitializeException(){
         super("초기화 중 에러 발생");
     }

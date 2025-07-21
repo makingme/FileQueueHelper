@@ -1,6 +1,6 @@
 package com.queue.file.sample;
 
-import com.queue.file.controller.Controller;
+import com.queue.file.controller.BaseController;
 import com.queue.file.exception.QueueWriteException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,10 +11,10 @@ import java.util.Map;
 public class WriterSample implements Runnable{
     private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
 
-    private final Controller controller;
+    private final BaseController controller;
 
     private boolean isRun = true;
-    public WriterSample(Controller controller) {
+    public WriterSample(BaseController controller) {
         this.controller = controller;
     }
 
@@ -32,7 +32,7 @@ public class WriterSample implements Runnable{
         for(int i =1; i<=loopCnt; i++){
             try {
                 dataMap.put("DATA", data+i);
-                controller.write(dataMap);
+                controller.write( data+i);
                 //Thread.sleep(1000);
                 //logger.info("<데이터 입력> - 데이터 정보: [{}]", i);
             }catch (QueueWriteException e) {

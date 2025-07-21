@@ -1,6 +1,6 @@
 package com.queue.file.sample;
 
-import com.queue.file.controller.Controller;
+import com.queue.file.controller.BaseController;
 import com.queue.file.exception.QueueReadException;
 import com.queue.file.vo.FileQueueData;
 import org.slf4j.Logger;
@@ -10,11 +10,11 @@ import java.util.List;
 
 public class ReadThrowSample implements Runnable{
     private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
-    private final Controller controller;
+    private final BaseController controller;
 
     private boolean isRun = true;
 
-    public ReadThrowSample(Controller controller) {
+    public ReadThrowSample(BaseController controller) {
         this.controller = controller;
     }
 
@@ -22,9 +22,9 @@ public class ReadThrowSample implements Runnable{
     public void run() {
         int loopCnt = 1;
         String name = Thread.currentThread().getName();
-        while (controller.isOk() && isRun){
+        while (isRun){
             try {
-                List<FileQueueData> fDataList = controller.read(name);
+                List<FileQueueData> fDataList = controller.read(name, 2);
                 Thread.sleep(500);
                 if(fDataList != null){
                     for(FileQueueData fData : fDataList){
