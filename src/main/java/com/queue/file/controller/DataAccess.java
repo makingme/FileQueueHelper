@@ -559,7 +559,9 @@ public class DataAccess {
     /** 지정 파티션에서 버퍼 또는 데이터 한 건 제거 */
     public void removeOne(String partitionName, String executorName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return;
+        if (ctx == null) {
+            return;
+        }
         ctx.getLock().writeLock().lock();
         try {
             MVMap<String, List<FileQueueData>> bufferMap = ctx.getReadBufferMap();
@@ -582,13 +584,10 @@ public class DataAccess {
                     // ignore and continue
                 }
                 firstKey = keyList.pollFirst();
-            }
-            if (firstKey == null && !dataMap.isEmpty()) {
-                firstKey = dataMap.keySet().iterator().next();
-            }
-            if (firstKey != null) {
-                dataMap.remove(firstKey);
-                if (keyList != null) keyList.remove(firstKey);
+                if (firstKey != null) {
+                    dataMap.remove(firstKey);
+                    keyList.remove(firstKey);
+                }
             }
         } finally {
             ctx.getLock().writeLock().unlock();
