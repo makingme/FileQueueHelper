@@ -49,7 +49,6 @@
     </scm>
 
     <properties>
-        <logback.version>1.4.14</logback.version>
         <slf4j.version>1.7.5</slf4j.version>
         <!-- from:2.3 required java 11 or newer -->
         <h2.version>2.2.224</h2.version>

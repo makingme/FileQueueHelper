@@ -1,7 +1,5 @@
 package com.queue.file.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.queue.file.exception.*;
 import com.queue.file.vo.*;
 import org.h2.mvstore.MVMap;
@@ -269,7 +267,6 @@ public class DataAccess {
         }
         ReentrantReadWriteLock lock = partitionContext.getLock();
         lock.readLock().lock();
-        String jsonData = null;
         try {
             queueDataList = readBufferMap.get(executorName);
             return queueDataList;

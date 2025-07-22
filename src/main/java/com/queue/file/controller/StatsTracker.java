@@ -1,7 +1,6 @@
 package com.queue.file.controller;
 
 import com.queue.file.vo.ActionType;
-import com.queue.file.vo.StoreInfo;
 import com.queue.file.vo.InOutStorage;
 
 import java.util.Collections;
@@ -13,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * @since : 2025-07-16(수)
  */
 public class StatsTracker {
-    private final Map<String, InOutStorage> parttitionInOutInfoMap = new ConcurrentHashMap<>();
+    private final Map<String, InOutStorage> partitionInOutInfoMap = new ConcurrentHashMap<>();
 
     // 유입 건수
     private final AtomicLong TOTAL_INPUT_COUNT = new AtomicLong(0);
@@ -25,7 +24,7 @@ public class StatsTracker {
     }
 
     public void keepRecord(String partitionName, String executorName, long count, ActionType actionType) {
-        InOutStorage ioStorage = parttitionInOutInfoMap.computeIfAbsent(partitionName, k -> new InOutStorage());
+        InOutStorage ioStorage = partitionInOutInfoMap.computeIfAbsent(partitionName, k -> new InOutStorage());
         switch (actionType) {
             case INPUT:
                 addTOTAL_INPUT_COUNT(count);
@@ -51,10 +50,10 @@ public class StatsTracker {
     }
 
     public InOutStorage getInOutInfo(String partitionName) {
-        return parttitionInOutInfoMap.computeIfAbsent(partitionName, k -> new InOutStorage());
+        return partitionInOutInfoMap.computeIfAbsent(partitionName, k -> new InOutStorage());
     }
 
-    public Map<String, InOutStorage> getParttitionInOutInfoMap() { return Collections.unmodifiableMap(parttitionInOutInfoMap); }
+    public Map<String, InOutStorage> getPartitionInOutInfoMap() { return Collections.unmodifiableMap(partitionInOutInfoMap); }
 
     public Long getTOTAL_INPUT_COUNT() { return TOTAL_INPUT_COUNT.get(); }
     public void addTOTAL_INPUT_COUNT(Long count) {
