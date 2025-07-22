@@ -2,18 +2,9 @@ package com.queue.file.controller;
 
 import com.queue.file.exception.*;
 import com.queue.file.utils.Contents;
-import com.queue.file.vo.FileQueueConfigVo;
-import com.queue.file.vo.FileQueueCustomConfigVo;
 import com.queue.file.vo.FileQueueData;
 import com.queue.file.vo.StoreInfo;
-import org.h2.mvstore.DataUtils;
-import org.h2.mvstore.MVStore;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
@@ -178,34 +169,113 @@ public class BaseController {
         return partitionManager.getPartitionContextMap().keySet();
     }
 
-    // TODO: 요약 정보 가져오는 함수 - 파티션 별 - 영역 별 데이터 갯수
-    // TODO: 특정 파티션 데이터 목록 가져 오는 함수
-    // TODO: 특정 파티션 버퍼 목록 가져 오는 함수
-    // TODO: 특정 파티션 캐시 목록 가져 오는 함수
+    // 요약 정보 가져오는 함수 - 파티션 별 - 영역 별 데이터 갯수
+    public java.util.Map<String, com.queue.file.vo.PartitionSummaryVo> getSummaryInfo() {
+        return dataAccess.getSummaryInfo();
+    }
 
-    // TODO: 모든 파티션 전체 정보 가져 오는 함수 - 고려
-    // TODO: 특정 파티션 전체 정보 가져 오는 함수 - 고려
+    // 특정 파티션 데이터 목록 가져 오는 함수
+    public java.util.List<com.queue.file.vo.FileQueueData> getPartitionDataList(String partitionName) {
+        return dataAccess.getPartitionDataList(partitionName);
+    }
 
-    // TODO: 모든 파티션의 전체 데이터 정보 가져 오는 함수
-    // TODO: 특정 파티션의 전체 데이터 정보 가져 오는 함수
-    // TODO: 특정 파티션의 특정 데이터 정보 가져 오는 함수
+    // 특정 파티션 버퍼 목록 가져 오는 함수
+    public java.util.Map<String, java.util.List<com.queue.file.vo.FileQueueData>> getPartitionBufferList(String partitionName) {
+        return dataAccess.getPartitionBufferList(partitionName);
+    }
 
-    // TODO: 모든 파티션의 전체 데이터 정보 삭제 함수
-    // TODO: 특정 파티션의 전체 데이터 정보 삭제 함수
-    // TODO: 특정 파티션의 특정 데이터 정보 삭제 함수
+    // 특정 파티션 캐시 목록 가져 오는 함수
+    public java.util.Map<String, Object> getPartitionCacheList(String partitionName) {
+        return dataAccess.getPartitionCacheList(partitionName);
+    }
 
-    // TODO: 특정 파티션의 모든 버퍼 정보 가져오는 함수
-    // TODO: 특정 파티션의 특정 버퍼 정보 가져오는 함수
+    // 모든 파티션 전체 정보 가져 오는 함수
+    public java.util.Map<String, com.queue.file.vo.PartitionContext> getAllPartitionInfo() {
+        return dataAccess.getAllPartitionInfo();
+    }
 
-    // TODO: 모든 파티션의 모든 버퍼 정보 삭제 함수
-    // TODO: 특정 파티션의 모든 버퍼 정보 삭제 함수
-    // TODO: 특정 파티션의 특정 버퍼 정보 삭제 함수
+    // 특정 파티션 전체 정보 가져 오는 함수
+    public com.queue.file.vo.PartitionContext getPartitionInfo(String partitionName) {
+        return dataAccess.getPartitionInfo(partitionName);
+    }
 
-    // TODO: 특정 파티션의 모든 캐시 정보 가져오는 함수
-    // TODO: 특정 파티션의 특정 캐시 정보 가져오는 함수
+    // 모든 파티션의 전체 데이터 정보 가져 오는 함수
+    public java.util.Map<String, java.util.List<com.queue.file.vo.FileQueueData>> getAllDataList() {
+        return dataAccess.getAllDataList();
+    }
 
-    // TODO: 모든 파티션의 모든 캐시 정보 삭제 함수
-    // TODO: 특정 파티션의 모든 캐시 정보 삭제 함수
-    // TODO: 특정 파티션의 특정 캐시 정보 삭제 함수
+    // 특정 파티션의 전체 데이터 정보 가져 오는 함수
+    public java.util.List<com.queue.file.vo.FileQueueData> getAllDataList(String partitionName) {
+        return dataAccess.getAllDataList(partitionName);
+    }
 
+    // 특정 파티션의 특정 데이터 정보 가져 오는 함수
+    public com.queue.file.vo.FileQueueData getData(String partitionName, Long transactionKey) {
+        return dataAccess.getData(partitionName, transactionKey);
+    }
+
+    // 모든 파티션의 전체 데이터 정보 삭제 함수
+    public void clearAllData() {
+        dataAccess.clearAllData();
+    }
+
+    // 특정 파티션의 전체 데이터 정보 삭제 함수
+    public void clearData(String partitionName) {
+        dataAccess.clearData(partitionName);
+    }
+
+    // 특정 파티션의 특정 데이터 정보 삭제 함수
+    public void removeData(String partitionName, Long transactionKey) {
+        dataAccess.removeData(partitionName, transactionKey);
+    }
+
+    // 특정 파티션의 모든 버퍼 정보 가져오는 함수
+    public java.util.Map<String, java.util.List<com.queue.file.vo.FileQueueData>> getAllBuffer(String partitionName) {
+        return dataAccess.getAllBuffer(partitionName);
+    }
+
+    // 특정 파티션의 특정 버퍼 정보 가져오는 함수
+    public java.util.List<com.queue.file.vo.FileQueueData> getBuffer(String partitionName, String executorName) {
+        return dataAccess.getBuffer(partitionName, executorName);
+    }
+
+    // 모든 파티션의 모든 버퍼 정보 삭제 함수
+    public void clearAllBuffer() {
+        dataAccess.clearAllBuffer();
+    }
+
+    // 특정 파티션의 모든 버퍼 정보 삭제 함수
+    public void clearBuffer(String partitionName) {
+        dataAccess.clearBuffer(partitionName);
+    }
+
+    // 특정 파티션의 특정 버퍼 정보 삭제 함수
+    public void clearBuffer(String partitionName, String executorName) {
+        dataAccess.clearBuffer(partitionName, executorName);
+    }
+
+    // 특정 파티션의 모든 캐시 정보 가져오는 함수
+    public java.util.Map<String, Object> getAllCache(String partitionName) {
+        return dataAccess.getAllCache(partitionName);
+    }
+
+    // 특정 파티션의 특정 캐시 정보 가져오는 함수
+    public Object getCache(String partitionName, String cacheKey) {
+        return dataAccess.getCache(partitionName, cacheKey);
+    }
+
+    // 모든 파티션의 모든 캐시 정보 삭제 함수
+    public void clearAllCache() {
+        dataAccess.clearAllCache();
+    }
+
+    // 특정 파티션의 모든 캐시 정보 삭제 함수
+    public void clearCache(String partitionName) {
+        dataAccess.clearCache(partitionName);
+    }
+
+    // 특정 파티션의 특정 캐시 정보 삭제 함수
+    public void clearCache(String partitionName, String cacheKey) {
+        dataAccess.clearCache(partitionName, cacheKey);
+    }
 }
