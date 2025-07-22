@@ -310,13 +310,14 @@ public class DataAccess {
     public Map<String, PartitionSummaryVo> getSummaryInfo() {
         Map<String, PartitionSummaryVo> result = new HashMap<>();
         for (Map.Entry<String, PartitionContext> entry : partitionManager.getPartitionContextMap().entrySet()) {
+            String partitionName = entry.getKey();
             PartitionContext ctx = entry.getValue();
             ctx.getLock().readLock().lock();
             try {
                 int dataCnt = ctx.getDataMap() == null ? 0 : ctx.getDataMap().size();
                 int bufferCnt = ctx.getReadBufferMap() == null ? 0 : ctx.getReadBufferMap().size();
                 int cacheCnt = ctx.getCacheMap() == null ? 0 : ctx.getCacheMap().size();
-                result.put(entry.getKey(), new PartitionSummaryVo(entry.getKey(), dataCnt, bufferCnt, cacheCnt));
+                result.put(partitionName, new PartitionSummaryVo(partitionName, dataCnt, bufferCnt, cacheCnt));
             } finally {
                 ctx.getLock().readLock().unlock();
             }
@@ -327,10 +328,14 @@ public class DataAccess {
     /** 특정 파티션 데이터 목록 가져 오는 함수 */
     public List<FileQueueData> getPartitionDataList(String partitionName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return Collections.emptyList();
+        if (ctx == null) {
+            return Collections.emptyList();
+        }
         ctx.getLock().readLock().lock();
         try {
-            if (ctx.getDataMap() == null) return Collections.emptyList();
+            if (ctx.getDataMap() == null) {
+                return Collections.emptyList();
+            }
             return new ArrayList<>(ctx.getDataMap().values());
         } finally {
             ctx.getLock().readLock().unlock();
@@ -340,10 +345,14 @@ public class DataAccess {
     /** 특정 파티션 버퍼 목록 가져 오는 함수 */
     public Map<String, List<FileQueueData>> getPartitionBufferList(String partitionName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return Collections.emptyMap();
+        if (ctx == null) {
+            return Collections.emptyMap();
+        }
         ctx.getLock().readLock().lock();
         try {
-            if (ctx.getReadBufferMap() == null) return Collections.emptyMap();
+            if (ctx.getReadBufferMap() == null) {
+                return Collections.emptyMap();
+            }
             return new HashMap<>(ctx.getReadBufferMap());
         } finally {
             ctx.getLock().readLock().unlock();
@@ -353,25 +362,20 @@ public class DataAccess {
     /** 특정 파티션 캐시 목록 가져 오는 함수 */
     public Map<String, Object> getPartitionCacheList(String partitionName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return Collections.emptyMap();
+        if (ctx == null) {
+            return Collections.emptyMap();
+        }
         ctx.getLock().readLock().lock();
         try {
-            if (ctx.getCacheMap() == null) return Collections.emptyMap();
+            if (ctx.getCacheMap() == null) {
+                return Collections.emptyMap();
+            }
             return new HashMap<>(ctx.getCacheMap());
         } finally {
             ctx.getLock().readLock().unlock();
         }
     }
 
-    /** 모든 파티션 전체 정보 가져 오는 함수 */
-    public Map<String, PartitionContext> getAllPartitionInfo() {
-        return Collections.unmodifiableMap(partitionManager.getPartitionContextMap());
-    }
-
-    /** 특정 파티션 전체 정보 가져 오는 함수 */
-    public PartitionContext getPartitionInfo(String partitionName) {
-        return partitionManager.getPartitionContextMap().get(partitionName);
-    }
 
     /** 모든 파티션의 전체 데이터 정보 가져 오는 함수 */
     public Map<String, List<FileQueueData>> getAllDataList() {
@@ -382,15 +386,12 @@ public class DataAccess {
         return result;
     }
 
-    /** 특정 파티션의 전체 데이터 정보 가져 오는 함수 */
-    public List<FileQueueData> getAllDataList(String partitionName) {
-        return getPartitionDataList(partitionName);
-    }
-
     /** 특정 파티션의 특정 데이터 정보 가져 오는 함수 */
     public FileQueueData getData(String partitionName, Long transactionKey) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return null;
+        if (ctx == null) {
+            return null;
+        }
         ctx.getLock().readLock().lock();
         try {
             return ctx.getDataMap() == null ? null : ctx.getDataMap().get(transactionKey);
@@ -409,11 +410,17 @@ public class DataAccess {
     /** 특정 파티션의 전체 데이터 정보 삭제 함수 */
     public void clearData(String partitionName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return;
+        if (ctx == null) {
+            return;
+        }
         ctx.getLock().writeLock().lock();
         try {
-            if (ctx.getDataMap() != null) ctx.getDataMap().clear();
-            if (ctx.getTransactionKeyList() != null) ctx.getTransactionKeyList().clear();
+            if (ctx.getDataMap() != null) {
+                ctx.getDataMap().clear();
+            }
+            if (ctx.getTransactionKeyList() != null) {
+                ctx.getTransactionKeyList().clear();
+            }
         } finally {
             ctx.getLock().writeLock().unlock();
         }
@@ -422,29 +429,34 @@ public class DataAccess {
     /** 특정 파티션의 특정 데이터 정보 삭제 함수 */
     public void removeData(String partitionName, Long transactionKey) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return;
+        if (ctx == null) {
+            return;
+        }
         ctx.getLock().writeLock().lock();
         try {
-            if (ctx.getDataMap() != null) ctx.getDataMap().remove(transactionKey);
-            if (ctx.getTransactionKeyList() != null) ctx.getTransactionKeyList().remove(transactionKey);
+            if (ctx.getDataMap() != null) {
+                ctx.getDataMap().remove(transactionKey);
+            }
+            if (ctx.getTransactionKeyList() != null) {
+                ctx.getTransactionKeyList().remove(transactionKey);
+            }
         } finally {
             ctx.getLock().writeLock().unlock();
         }
     }
 
-    /** 특정 파티션의 모든 버퍼 정보 가져오는 함수 */
-    public Map<String, List<FileQueueData>> getAllBuffer(String partitionName) {
-        return getPartitionBufferList(partitionName);
-    }
-
     /** 특정 파티션의 특정 버퍼 정보 가져오는 함수 */
     public List<FileQueueData> getBuffer(String partitionName, String executorName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return Collections.emptyList();
+        if (ctx == null) {
+            return Collections.emptyList();
+        }
         ctx.getLock().readLock().lock();
         try {
             Map<String, List<FileQueueData>> map = ctx.getReadBufferMap();
-            if (map == null) return Collections.emptyList();
+            if (map == null) {
+                return Collections.emptyList();
+            }
             List<FileQueueData> list = map.get(executorName);
             return list == null ? Collections.emptyList() : new ArrayList<>(list);
         } finally {
@@ -462,10 +474,14 @@ public class DataAccess {
     /** 특정 파티션의 모든 버퍼 정보 삭제 함수 */
     public void clearBuffer(String partitionName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return;
+        if (ctx == null) {
+            return;
+        }
         ctx.getLock().writeLock().lock();
         try {
-            if (ctx.getReadBufferMap() != null) ctx.getReadBufferMap().clear();
+            if (ctx.getReadBufferMap() != null) {
+                ctx.getReadBufferMap().clear();
+            }
         } finally {
             ctx.getLock().writeLock().unlock();
         }
@@ -474,24 +490,25 @@ public class DataAccess {
     /** 특정 파티션의 특정 버퍼 정보 삭제 함수 */
     public void clearBuffer(String partitionName, String executorName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return;
+        if (ctx == null) {
+            return;
+        }
         ctx.getLock().writeLock().lock();
         try {
-            if (ctx.getReadBufferMap() != null) ctx.getReadBufferMap().remove(executorName);
+            if (ctx.getReadBufferMap() != null) {
+                ctx.getReadBufferMap().remove(executorName);
+            }
         } finally {
             ctx.getLock().writeLock().unlock();
         }
     }
 
-    /** 특정 파티션의 모든 캐시 정보 가져오는 함수 */
-    public Map<String, Object> getAllCache(String partitionName) {
-        return getPartitionCacheList(partitionName);
-    }
-
     /** 특정 파티션의 특정 캐시 정보 가져오는 함수 */
     public Object getCache(String partitionName, String cacheKey) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return null;
+        if (ctx == null) {
+            return null;
+        }
         ctx.getLock().readLock().lock();
         try {
             return ctx.getCacheMap() == null ? null : ctx.getCacheMap().get(cacheKey);
@@ -510,10 +527,14 @@ public class DataAccess {
     /** 특정 파티션의 모든 캐시 정보 삭제 함수 */
     public void clearCache(String partitionName) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return;
+        if (ctx == null) {
+            return;
+        }
         ctx.getLock().writeLock().lock();
         try {
-            if (ctx.getCacheMap() != null) ctx.getCacheMap().clear();
+            if (ctx.getCacheMap() != null) {
+                ctx.getCacheMap().clear();
+            }
         } finally {
             ctx.getLock().writeLock().unlock();
         }
@@ -522,10 +543,14 @@ public class DataAccess {
     /** 특정 파티션의 특정 캐시 정보 삭제 함수 */
     public void clearCache(String partitionName, String cacheKey) {
         PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) return;
+        if (ctx == null) {
+            return;
+        }
         ctx.getLock().writeLock().lock();
         try {
-            if (ctx.getCacheMap() != null) ctx.getCacheMap().remove(cacheKey);
+            if (ctx.getCacheMap() != null) {
+                ctx.getCacheMap().remove(cacheKey);
+            }
         } finally {
             ctx.getLock().writeLock().unlock();
         }

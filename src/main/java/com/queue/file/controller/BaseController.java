@@ -3,9 +3,12 @@ package com.queue.file.controller;
 import com.queue.file.exception.*;
 import com.queue.file.utils.Contents;
 import com.queue.file.vo.FileQueueData;
+import com.queue.file.vo.PartitionContext;
+import com.queue.file.vo.PartitionSummaryVo;
 import com.queue.file.vo.StoreInfo;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -170,47 +173,33 @@ public class BaseController {
     }
 
     // 요약 정보 가져오는 함수 - 파티션 별 - 영역 별 데이터 갯수
-    public java.util.Map<String, com.queue.file.vo.PartitionSummaryVo> getSummaryInfo() {
+    public Map<String, PartitionSummaryVo> getSummaryInfo() {
         return dataAccess.getSummaryInfo();
     }
 
     // 특정 파티션 데이터 목록 가져 오는 함수
-    public java.util.List<com.queue.file.vo.FileQueueData> getPartitionDataList(String partitionName) {
+    public List<FileQueueData> getPartitionDataList(String partitionName) {
         return dataAccess.getPartitionDataList(partitionName);
     }
 
     // 특정 파티션 버퍼 목록 가져 오는 함수
-    public java.util.Map<String, java.util.List<com.queue.file.vo.FileQueueData>> getPartitionBufferList(String partitionName) {
+    public Map<String, List<FileQueueData>> getPartitionBufferList(String partitionName) {
         return dataAccess.getPartitionBufferList(partitionName);
     }
 
     // 특정 파티션 캐시 목록 가져 오는 함수
-    public java.util.Map<String, Object> getPartitionCacheList(String partitionName) {
+    public Map<String, Object> getPartitionCacheList(String partitionName) {
         return dataAccess.getPartitionCacheList(partitionName);
     }
 
-    // 모든 파티션 전체 정보 가져 오는 함수
-    public java.util.Map<String, com.queue.file.vo.PartitionContext> getAllPartitionInfo() {
-        return dataAccess.getAllPartitionInfo();
-    }
-
-    // 특정 파티션 전체 정보 가져 오는 함수
-    public com.queue.file.vo.PartitionContext getPartitionInfo(String partitionName) {
-        return dataAccess.getPartitionInfo(partitionName);
-    }
 
     // 모든 파티션의 전체 데이터 정보 가져 오는 함수
-    public java.util.Map<String, java.util.List<com.queue.file.vo.FileQueueData>> getAllDataList() {
+    public Map<String, List<FileQueueData>> getAllDataList() {
         return dataAccess.getAllDataList();
     }
 
-    // 특정 파티션의 전체 데이터 정보 가져 오는 함수
-    public java.util.List<com.queue.file.vo.FileQueueData> getAllDataList(String partitionName) {
-        return dataAccess.getAllDataList(partitionName);
-    }
-
     // 특정 파티션의 특정 데이터 정보 가져 오는 함수
-    public com.queue.file.vo.FileQueueData getData(String partitionName, Long transactionKey) {
+    public FileQueueData getData(String partitionName, Long transactionKey) {
         return dataAccess.getData(partitionName, transactionKey);
     }
 
@@ -229,13 +218,8 @@ public class BaseController {
         dataAccess.removeData(partitionName, transactionKey);
     }
 
-    // 특정 파티션의 모든 버퍼 정보 가져오는 함수
-    public java.util.Map<String, java.util.List<com.queue.file.vo.FileQueueData>> getAllBuffer(String partitionName) {
-        return dataAccess.getAllBuffer(partitionName);
-    }
-
     // 특정 파티션의 특정 버퍼 정보 가져오는 함수
-    public java.util.List<com.queue.file.vo.FileQueueData> getBuffer(String partitionName, String executorName) {
+    public List<FileQueueData> getBuffer(String partitionName, String executorName) {
         return dataAccess.getBuffer(partitionName, executorName);
     }
 
@@ -252,11 +236,6 @@ public class BaseController {
     // 특정 파티션의 특정 버퍼 정보 삭제 함수
     public void clearBuffer(String partitionName, String executorName) {
         dataAccess.clearBuffer(partitionName, executorName);
-    }
-
-    // 특정 파티션의 모든 캐시 정보 가져오는 함수
-    public java.util.Map<String, Object> getAllCache(String partitionName) {
-        return dataAccess.getAllCache(partitionName);
     }
 
     // 특정 파티션의 특정 캐시 정보 가져오는 함수
