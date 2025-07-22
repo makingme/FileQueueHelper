@@ -257,4 +257,9 @@ public class BaseController {
     public void clearCache(String partitionName, String cacheKey) {
         dataAccess.clearCache(partitionName, cacheKey);
     }
+
+    // 지정 파티션 데이터 또는 버퍼에서 한 건 삭제
+    public void removeOne(String partitionName, String executorName) {
+        dataAccess.removeOne(partitionName, executorName);
+    }
 }
