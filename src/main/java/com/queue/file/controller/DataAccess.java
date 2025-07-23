@@ -3,6 +3,8 @@ package com.queue.file.controller;
 import com.queue.file.exception.*;
 import com.queue.file.vo.*;
 import org.h2.mvstore.MVMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -13,6 +15,7 @@ import java.util.stream.Collectors;
  * @since : 2025-07-16(수)
  */
 public class DataAccess {
+    private static final Logger logger = LoggerFactory.getLogger(DataAccess.class);
     private final StatsTracker statsTracker = new StatsTracker();
     private final StoreInfo storeInfo;
     private final PartitionManager partitionManager;
@@ -26,6 +29,7 @@ public class DataAccess {
         if (data == null || data.isEmpty()) {
             return;
         }
+        logger.debug("write tag={} partition={} executor={}", tag, partition, executorName);
         writeQueueData(executorName, Collections.singletonList(new FileQueueData(partition, tag, data)));
     }
 
@@ -33,6 +37,7 @@ public class DataAccess {
         if (dataList ==null || dataList.isEmpty()) {
             return;
         }
+        logger.debug("writeBulk tag={} partition={} executor={} size={}", tag, partition, executorName, dataList.size());
         List<FileQueueData> storeDataList = new ArrayList<>(dataList.size());
         for (String data : dataList) {
             storeDataList.add(new FileQueueData(partition, tag, data));
@@ -47,6 +52,8 @@ public class DataAccess {
         }catch (UnsteadyStateException e) {
             throw new QueueException(e);
         }
+
+        logger.debug("writeQueueData executor={} size={}", executorName, storeDataList==null?0:storeDataList.size());
         
         if (storeDataList==null || storeDataList.isEmpty()) {
             return;
@@ -82,6 +89,7 @@ public class DataAccess {
                     e.addSuppressed(e1);
                 }
             }
+            logger.error("writeQueueData failed", e);
             throw new QueueWriteException("큐 입력 중 예외 발생 = 큐:[" + configVo.getQueueName() + "]", e);
         }finally {
             // 모든 락 해제 (역순)
@@ -93,6 +101,7 @@ public class DataAccess {
         List<String> sortedPartitions = new ArrayList<>(partitionNames);
         // 일관된 락 순서
         Collections.sort(sortedPartitions);
+        logger.debug("acquire locks for partitions={}", sortedPartitions);
         try {
             for (String partitionName : sortedPartitions) {
                 PartitionContext partitionContext;
@@ -110,12 +119,14 @@ public class DataAccess {
         } catch (Exception e) {
             // 획득한 락들을 역순으로 해제
             releaseAllLocks(sortedPartitions);
+            logger.error("acquireAllPartitionLocks failed", e);
             throw new QueueException(e);
         }
     }
 
     private void processPartitionData(String partitionName, List<FileQueueData> partitionDataList, String executorName) throws QueueException {
         PartitionContext partitionContext = null;
+        logger.debug("process partition data partition={} executor={} size={}", partitionName, executorName, partitionDataList==null?0:partitionDataList.size());
         try{
             partitionContext = partitionManager.getPartitionContext(partitionName);
         }catch (InitializeException e){
@@ -137,6 +148,7 @@ public class DataAccess {
             }
             statsTracker.keepRecord(partitionName, executorName, partitionDataList.size(), ActionType.INPUT);
         }catch (Exception e){
+            logger.error("processPartitionData failed partition={}", partitionContext.getPartitionName(), e);
             throw new QueueWriteException(
                     "파티션 데이터 처리 중 예외 발생 - 파티션: " + partitionContext.getPartitionName(), e);
         }
@@ -145,6 +157,7 @@ public class DataAccess {
 
     private void releaseAllLocks(List<String> acquiredLockPartitions) {
         // 역순으로 락 해제
+        logger.debug("release locks for partitions={}", acquiredLockPartitions);
         for (int i = acquiredLockPartitions.size() - 1; i >= 0; i--) {
             PartitionContext partitionContext;
             try {
@@ -155,17 +168,19 @@ public class DataAccess {
             try {
                 partitionContext.getLock().writeLock().unlock();
             } catch (Exception e) {
-                System.err.println("락 해제 중 예외 발생: " + e.getMessage());
+                logger.warn("락 해제 중 예외 발생: {}", e.getMessage());
             }
         }
     }
 
     public FileQueueData read(String partitionName, String executorName) throws QueueException {
+        logger.debug("read single partition={} executor={}", partitionName, executorName);
         List<FileQueueData> fileQueueDataList = read(partitionName, executorName, 1);
         return (fileQueueDataList == null || fileQueueDataList.isEmpty()) ? null : fileQueueDataList.get(0);
     }
 
     public List<FileQueueData> read(String partitionName, String executorName, int requestCount) throws QueueException {
+        logger.debug("read partition={} executor={} count={}", partitionName, executorName, requestCount);
         if (storeInfo.getStoreOpenTime() == null) {
             throw new QueueReadException("open 되지 않음 - open() 호출 필요");
         }
@@ -221,11 +236,13 @@ public class DataAccess {
             statsTracker.keepRecord(partitionName, executorName, queueDataList.size(), ActionType.OUTPUT);
             return queueDataList;
         } catch (QueueReadException e) {
+            logger.error("read failed: {}", e.getMessage());
             throw new QueueReadException("큐:[" + configVo.getQueueName() + "] " + e.getMessage(), e);
         } catch (Exception e) {
             if (isCommited) {
                 storeInfo.getStore().rollback();
             }
+            logger.error("read failed", e);
             throw new QueueReadException("<읽기 : 실패> = 큐:[" + configVo.getQueueName() + "]", e);
         }finally {
             lock.writeLock().unlock();
@@ -233,6 +250,7 @@ public class DataAccess {
     }
 
     private List<FileQueueData> extractData(String partitionName, ConcurrentSkipListSet<Long> dataKeyList, MVMap<Long, FileQueueData> dataMap, int selectCount) throws QueueException {
+        logger.debug("extractData partition={} count={}", partitionName, selectCount);
         List<FileQueueData> queueDataList = new ArrayList<>(selectCount);
         try {
 
@@ -250,12 +268,14 @@ public class DataAccess {
             }
             return queueDataList;
         } catch (Exception e) {
+            logger.error("extractData failed partition={}", partitionName, e);
             throw new QueueReadException("데이터 추출 중 예외 발생 = 파티션:" + partitionName, e);
         }
     }
 
     private List<FileQueueData> readBuffer(String partitionName, String executorName) throws QueueException {
         statsTracker.keepRecord(partitionName, executorName, ActionType.BUFFER_OUTPUT_INVOKE);
+        logger.debug("readBuffer partition={} executor={}", partitionName, executorName);
         List<FileQueueData> queueDataList = null;
         PartitionContext partitionContext = partitionManager.getPartitionContextMap().get(partitionName);
         if (partitionContext == null) {
@@ -271,6 +291,7 @@ public class DataAccess {
             queueDataList = readBufferMap.get(executorName);
             return queueDataList;
         } catch (Exception e) {
+            logger.error("readBuffer failed partition={} executor={}", partitionName, executorName, e);
             throw new QueueReadException(partitionName + "파티션의 " + executorName + "버퍼 영역 데이터 파싱 중 예외 발생 - 원본 데이터 정보:" + queueDataList, e);
         } finally {
             lock.readLock().unlock();
@@ -293,9 +314,11 @@ public class DataAccess {
         ReentrantReadWriteLock lock = partitionContext.getLock();
         lock.writeLock().lock();
         try {
+            logger.debug("readCommit partition={} executor={}", partitionName, executorName);
             readBufferMap.remove(executorName);
             statsTracker.keepRecord(partitionName, executorName, ActionType.BUFFER_OUTPUT);
         } catch (Exception e) {
+            logger.error("readCommit failed", e);
             throw new QueueReadException("[" + storeInfo.getCONFIG().getQueueName() + "] 큐, 버퍼 COMMIT 실패 - 파티션:" + partitionName, e);
         } finally {
             lock.writeLock().unlock();

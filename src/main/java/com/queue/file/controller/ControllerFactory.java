@@ -6,6 +6,8 @@ import com.queue.file.vo.FileQueueCustomConfigVo;
 import com.queue.file.vo.StoreInfo;
 import org.h2.mvstore.DataUtils;
 import org.h2.mvstore.MVStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,12 +20,14 @@ import java.util.HashMap;
  * This Class generates BaseController Instance with Several Options(Mods)
  */
 public class ControllerFactory {
+    private static final Logger logger = LoggerFactory.getLogger(ControllerFactory.class);
     /**
      * @param queue - Path+QueueName
      * @return BaseController Basic Mode Instance
      * @throws InitializeException - RuntimeException
      */
     public static BaseController create(String queue) throws InitializeException {
+        logger.debug("create controller queue={}", queue);
         StoreInfo storeInfo = new StoreInfo(new FileQueueConfigVo(queue));
         openStore(storeInfo);
         return new BaseController(storeInfo);
@@ -36,6 +40,7 @@ public class ControllerFactory {
      * @throws InitializeException - RuntimeException
      */
     public static BaseController create(String queuePath, String queueName) throws InitializeException {
+        logger.debug("create controller path={} name={}", queuePath, queueName);
         StoreInfo storeInfo = new StoreInfo(new FileQueueConfigVo(queuePath, queueName));
         openStore(storeInfo);
         return new BaseController(storeInfo);
@@ -61,6 +66,7 @@ public class ControllerFactory {
      * @throws InitializeException - RuntimeException
      */
     public static BaseController createBulk(String queue, int bulkSize) throws InitializeException {
+        logger.debug("create bulk controller queue={} bulkSize={}", queue, bulkSize);
         FileQueueConfigVo configVo = new FileQueueConfigVo(queue);
         FileQueueCustomConfigVo fileQueueCustomConfigVo = new FileQueueCustomConfigVo();
         fileQueueCustomConfigVo.setBulkCommit(true);
@@ -75,12 +81,14 @@ public class ControllerFactory {
      * @throws InitializeException - RuntimeException
      */
     public static BaseController createCustomController(FileQueueConfigVo configVo) throws InitializeException {
+        logger.debug("create custom controller with config={}", configVo.getQueue());
         StoreInfo storeInfo = new StoreInfo(configVo);
         openStore(storeInfo);
         return new BaseController(storeInfo);
     }
 
     private static void openStore(StoreInfo storeInfo) throws InitializeException {
+        logger.debug("openStore queue={}", storeInfo.getCONFIG().getQueue());
         validate(storeInfo);
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
         if (storeInfo.getStore() == null || storeInfo.getStore().isClosed()) {
@@ -103,12 +111,14 @@ public class ControllerFactory {
                 storeInfo.setStore(store);
                 storeInfo.setStoreOpenTime(LocalDateTime.now());
             } catch (Exception e) {
+                logger.error("openStore failed", e);
                 throw new InitializeException("큐 오픈 실패: 큐=[" + configVo.getQueueName() + "], 에러=[" + e.getMessage() + "]", e);
             }
         }
     }
 
     private static void validate(StoreInfo storeInfo) throws InitializeException {
+        logger.debug("validate queue={}", storeInfo.getCONFIG().getQueue());
         FileQueueConfigVo config = storeInfo.getCONFIG();
         String queue = config.getQueue();
         if (queue == null || queue.trim().isEmpty()) {
