@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
 import org.h2.mvstore.type.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -20,15 +22,18 @@ import java.util.concurrent.ConcurrentSkipListSet;
  * @since : 2025-07-16(수)
  */
 public class PartitionManager {
+    private static final Logger logger = LoggerFactory.getLogger(PartitionManager.class);
     private final StoreInfo storeInfo;
     private final Map<String, PartitionContext> partitionContextMap = new ConcurrentHashMap<>();
 
     public PartitionManager(StoreInfo storeInfo) {
         this.storeInfo = storeInfo;
+        logger.debug("initialize PartitionManager");
         initializePartitions();
     }
 
     private void initializePartitions() throws InitializeException {
+        logger.debug("initializePartitions");
         MVStore store = storeInfo.getStore();
         if (store == null || store.isClosed()) {
             throw new InitializeException("스토어가 초기화되지 않음 또는 닫힘");
@@ -72,6 +77,7 @@ public class PartitionManager {
     }
 
     private void realignAllPartitions() throws InitializeException {
+        logger.debug("realignAllPartitions");
         MVStore store = storeInfo.getStore();
         if (store == null || store.isClosed()) {
             throw new InitializeException("스토어가 초기화되지 않음 또는 닫힘");
@@ -91,6 +97,7 @@ public class PartitionManager {
     }
 
     public void realignDataKey(String partitionName) throws UnsteadyStateException {
+        logger.debug("realignDataKey partition={}", partitionName);
         PartitionContext partitionContext = partitionContextMap.get(partitionName);
         if (partitionContext == null) {
             throw new UnsteadyStateException(partitionName + " 파티션이 존재하지 않음");
@@ -116,6 +123,7 @@ public class PartitionManager {
     }
 
     public void checkAllState() throws UnsteadyStateException {
+        logger.debug("checkAllState");
         checkStore();
         for (String partitionName : partitionContextMap.keySet()) {
             checkState(partitionName, false);
@@ -123,6 +131,7 @@ public class PartitionManager {
     }
 
     public void checkState(String partitionName, boolean checkStore) throws UnsteadyStateException {
+        logger.debug("checkState partition={}", partitionName);
         if (checkStore) {
             checkStore();
         }
@@ -141,6 +150,7 @@ public class PartitionManager {
     }
 
     public void checkStore() throws UnsteadyStateException {
+        logger.debug("checkStore");
         MVStore store = storeInfo.getStore();
         if (store == null || store.isClosed()) {
             throw new UnsteadyStateException(storeInfo.getCONFIG().getQueueName() + " 파일큐가 유효하지 않은 상태");

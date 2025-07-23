@@ -7,11 +7,14 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @since : 2025-07-16(수)
  */
 public class StatsTracker {
+    private static final Logger logger = LoggerFactory.getLogger(StatsTracker.class);
     private final Map<String, InOutStorage> partitionInOutInfoMap = new ConcurrentHashMap<>();
 
     // 유입 건수
@@ -24,6 +27,7 @@ public class StatsTracker {
     }
 
     public void keepRecord(String partitionName, String executorName, long count, ActionType actionType) {
+        logger.debug("keepRecord partition={} executor={} action={}", partitionName, executorName, actionType);
         InOutStorage ioStorage = partitionInOutInfoMap.computeIfAbsent(partitionName, k -> new InOutStorage());
         switch (actionType) {
             case INPUT:
