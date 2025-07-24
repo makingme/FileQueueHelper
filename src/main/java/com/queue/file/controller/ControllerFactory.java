@@ -95,7 +95,7 @@ public class ControllerFactory {
 
         validate(storeInfo);
         int lastChunkId = getLastChunkId(configVo.getQueue());
-        if(lastChunkId >= MAX_ID) {
+        if(configVo.isRestoreMode() && lastChunkId >= MAX_ID) {
             logger.info("The lastChunkId has reached the internal limit({})", MAX_ID);
             MVStoreTool.compact(configVo.getQueue(), configVo.isCompressMode());
             logger.info("store is successfully compacted");
