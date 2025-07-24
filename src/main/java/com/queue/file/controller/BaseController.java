@@ -6,19 +6,20 @@ import com.queue.file.exception.QueueWriteException;
 import com.queue.file.exception.UnsteadyStateException;
 import com.queue.file.utils.Contents;
 import com.queue.file.vo.FileQueueData;
+import com.queue.file.vo.PartitionContext;
 import com.queue.file.vo.PartitionSummaryVo;
 import com.queue.file.vo.StoreInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * @since : 2025-07-16(수)
  */
-public class BaseController {
+public class BaseController implements AutoCloseable{
     private static final Logger logger = LoggerFactory.getLogger(BaseController.class);
     private final StoreInfo storeInfo;
     private final PartitionManager partitionManager;
@@ -232,7 +233,6 @@ public class BaseController {
         return dataAccess.getPartitionCacheList(partitionName);
     }
 
-
     // 모든 파티션의 전체 데이터 정보 가져 오는 함수
     public Map<String, List<FileQueueData>> getAllDataList() {
         return dataAccess.getAllDataList();
@@ -310,5 +310,60 @@ public class BaseController {
     public void removeOne(String partitionName, String executorName) {
         logger.debug("remove one partition={} executor={}", partitionName, executorName);
         dataAccess.removeOne(partitionName, executorName);
+    }
+
+    @Override
+    public void close() {
+        logger.info("AutoCloseable#close: Graceful shutdown start");
+
+        List<ReentrantReadWriteLock.WriteLock> acquiredLocks = new ArrayList<>();
+        try {
+            List<String> partitions = new ArrayList<>(partitionManager.getPartitionContextMap().keySet());
+            Collections.sort(partitions);
+
+            for (String partition : partitions) {
+                PartitionContext ctx = partitionManager.getPartitionContextMap().get(partition);
+                ReentrantReadWriteLock.WriteLock wl = ctx.getLock().writeLock();
+
+                boolean locked = false;
+                final int maxRetry = 3;
+                final long timeoutPerTryMillis = 5000L;
+
+                for (int i = 0; i < maxRetry; i++) {
+                    try {
+                        if (wl.tryLock(timeoutPerTryMillis, TimeUnit.MILLISECONDS)) {
+                            acquiredLocks.add(wl);
+                            logger.debug("Lock acquired for partition {} (attempt {})", partition, i + 1);
+                            locked = true;
+                            break;
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        logger.warn("Interrupted while locking {}", partition);
+                        break;
+                    }
+                }
+
+                if (!locked) {
+                    logger.error("Failed to lock partition {} after retries", partition);
+                }
+            }
+
+            if (storeInfo.getStore() != null && !storeInfo.getStore().isClosed()) {
+                storeInfo.getStore().commit();
+                storeInfo.getStore().close();
+                storeInfo.setStoreOpenTime(null);
+                logger.info("store committed and closed");
+            }
+
+        } catch (Exception e) {
+            logger.error("Error during graceful close", e);
+        } finally {
+            for (int i = acquiredLocks.size() - 1; i >= 0; i--) {
+                try {
+                    acquiredLocks.get(i).unlock();
+                } catch (Exception ignore) {}
+            }
+        }
     }
 }
