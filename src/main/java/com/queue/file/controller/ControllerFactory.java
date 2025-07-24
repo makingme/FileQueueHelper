@@ -4,11 +4,11 @@ import com.queue.file.exception.InitializeException;
 import com.queue.file.vo.FileQueueConfigVo;
 import com.queue.file.vo.FileQueueCustomConfigVo;
 import com.queue.file.vo.StoreInfo;
-import org.h2.mvstore.DataUtils;
-import org.h2.mvstore.MVStore;
+import org.h2.mvstore.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -21,6 +21,8 @@ import java.util.HashMap;
  */
 public class ControllerFactory {
     private static final Logger logger = LoggerFactory.getLogger(ControllerFactory.class);
+
+    public static final int MAX_ID = (Chunk.MAX_ID - 10000000);
     /**
      * @param queue - Path+QueueName
      * @return BaseController Basic Mode Instance
@@ -29,7 +31,7 @@ public class ControllerFactory {
     public static BaseController create(String queue) throws InitializeException {
         logger.debug("create controller queue={}", queue);
         StoreInfo storeInfo = new StoreInfo(new FileQueueConfigVo(queue));
-        openStore(storeInfo);
+        initialize(storeInfo);
         return new BaseController(storeInfo);
     }
 
@@ -42,7 +44,7 @@ public class ControllerFactory {
     public static BaseController create(String queuePath, String queueName) throws InitializeException {
         logger.debug("create controller path={} name={}", queuePath, queueName);
         StoreInfo storeInfo = new StoreInfo(new FileQueueConfigVo(queuePath, queueName));
-        openStore(storeInfo);
+        initialize(storeInfo);
         return new BaseController(storeInfo);
     }
 
@@ -83,14 +85,22 @@ public class ControllerFactory {
     public static BaseController createCustomController(FileQueueConfigVo configVo) throws InitializeException {
         logger.debug("create custom controller with config={}", configVo.getQueue());
         StoreInfo storeInfo = new StoreInfo(configVo);
-        openStore(storeInfo);
+        initialize(storeInfo);
         return new BaseController(storeInfo);
     }
 
-    private static void openStore(StoreInfo storeInfo) throws InitializeException {
-        logger.debug("openStore queue={}", storeInfo.getCONFIG().getQueue());
-        validate(storeInfo);
+    private static void initialize(StoreInfo storeInfo) throws InitializeException {
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
+        logger.debug("openStore queue={}", configVo.getQueue());
+
+        validate(storeInfo);
+        int lastChunkId = getLastChunkId(configVo.getQueue());
+        if(lastChunkId >= MAX_ID) {
+            logger.info("The lastChunkId has reached the internal limit({})", MAX_ID);
+            MVStoreTool.compact(configVo.getQueue(), configVo.isCompressMode());
+            logger.info("store is successfully compacted");
+        }
+
         if (storeInfo.getStore() == null || storeInfo.getStore().isClosed()) {
             HashMap<String, Object> configMap = new HashMap<>();
             configMap.put("fileName", configVo.getQueue());
@@ -138,6 +148,31 @@ public class ControllerFactory {
         }
         if (Files.exists(Paths.get(queue))) {
             config.setRestoreMode(true);
+        }
+    }
+
+    private static int getLastChunkId(String path) {
+        int lastChunkId = -1;
+        MVStore store = null;
+        try {
+            store = new MVStore.Builder().
+                    readOnly().
+                    fileName(path)
+                    .open();
+            Field lastChunkIdField = MVStore.class.getDeclaredField("lastChunkId");
+            lastChunkIdField.setAccessible(true);
+            lastChunkId = lastChunkIdField.getInt(store);
+            return lastChunkId;
+        } catch (ReflectiveOperationException e) {
+            throw new InitializeException("lastChunkId reflection failed", e);
+        }catch (Exception e) {
+            throw new RuntimeException("Failed to get lastChunkId via reflection", e);
+        } finally {
+            try {
+                if(store != null &&  !store.isClosed()){
+                    store.close();
+                }
+            }catch (Exception ignore){}
         }
     }
 }
