@@ -28,7 +28,8 @@ public class ControllerFactoryTest {
         assertEquals("hello", data.getData());
         controller.readCommit(Thread.currentThread().getName());
 
-        controller.getStoreInfo().getStore().close();
+        controller.close();
+        assertTrue(controller.getStoreInfo().getStore().isClosed());
         Files.deleteIfExists(dir.resolve("t.mv"));
         Files.deleteIfExists(dir);
     }
@@ -49,7 +50,8 @@ public class ControllerFactoryTest {
         buffers = controller.getPartitionBufferList(Contents.DEFAULT_PARTITION);
         assertFalse(buffers.containsKey(Thread.currentThread().getName()));
 
-        controller.getStoreInfo().getStore().close();
+        controller.close();
+        assertTrue(controller.getStoreInfo().getStore().isClosed());
         Files.deleteIfExists(dir.resolve("s.mv"));
         Files.deleteIfExists(dir);
     }
