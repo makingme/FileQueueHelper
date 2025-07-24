@@ -65,13 +65,6 @@
             <version>${slf4j.version}</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>2.19.1</version>
-        </dependency>
-
         <!--
             FILE HASH  - https://www.h2database.com/html/mvstore.html#current_state
             https://javadoc.io/doc/com.h2database/h2-mvstore/latest/index.html
