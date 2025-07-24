@@ -42,7 +42,8 @@ public class BaseControllerTest {
         Map<String, PartitionSummaryVo> summary = controller.getSummaryInfo();
         assertEquals(1, summary.get("P1").getDataCount());
 
-        storeInfo.getStore().close();
+        controller.close();
+        assertTrue(storeInfo.getStore().isClosed());
         Files.deleteIfExists(file);
     }
 }
