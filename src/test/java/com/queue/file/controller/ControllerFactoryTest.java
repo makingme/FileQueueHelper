@@ -60,4 +60,44 @@ public class ControllerFactoryTest {
     public void testCreateInvalidPath() {
         ControllerFactory.create("/not/exist/path/queue.mv");
     }
+
+    @Test
+    public void testBulkCommitConfig() throws Exception {
+        Path dir = Files.createTempDirectory("bulk");
+        String queue = dir.resolve("b.mv").toString();
+
+        BaseController controller = ControllerFactory.createBulk(queue, 2);
+        assertNotNull(controller);
+        assertTrue(controller.getStoreInfo().getCONFIG().getCustomConfig().isBulkCommit());
+        assertEquals(2, controller.getStoreInfo().getCONFIG().getCustomConfig().getBulkSize());
+
+        controller.writeBulk(java.util.Arrays.asList("d1", "d2"));
+
+        java.util.List<FileQueueData> datas = controller.read(Thread.currentThread().getName(), 2);
+        assertEquals(2, datas.size());
+        assertEquals("d1", datas.get(0).getData());
+        assertEquals("d2", datas.get(1).getData());
+        controller.readCommit(Thread.currentThread().getName());
+
+        controller.close();
+        Files.deleteIfExists(dir.resolve("b.mv"));
+        Files.deleteIfExists(dir);
+    }
+
+    @Test
+    public void testCheckStore() throws Exception {
+        Path dir = Files.createTempDirectory("check");
+        String queue = dir.resolve("c.mv").toString();
+
+        BaseController controller = ControllerFactory.create(queue);
+        controller.write("data");
+        controller.read();
+        controller.readCommit(Thread.currentThread().getName());
+        controller.close();
+
+        ControllerFactory.checkStore(queue);
+
+        Files.deleteIfExists(dir.resolve("c.mv"));
+        Files.deleteIfExists(dir);
+    }
 }
