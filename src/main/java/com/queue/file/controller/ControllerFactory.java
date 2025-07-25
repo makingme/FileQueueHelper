@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.Map;
 
 /**
  * @since : 2025-07-21(월)
@@ -22,7 +23,9 @@ import java.util.HashMap;
 public class ControllerFactory {
     private static final Logger logger = LoggerFactory.getLogger(ControllerFactory.class);
 
-    public static final int MAX_ID = (Chunk.MAX_ID - 10000000);
+    private static final int MAX_CHUNK_ID = 67108863;
+
+    private static final double CHUNK_ID_THRESHOLD_RATIO = 0.9;
     /**
      * @param queue - Path+QueueName
      * @return BaseController Basic Mode Instance
@@ -92,7 +95,8 @@ public class ControllerFactory {
     private static void initialize(StoreInfo storeInfo) throws InitializeException {
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
         logger.debug("openStore queue={}", configVo.getQueue());
-        validate(storeInfo);
+        checkFile(storeInfo);
+        checkStore(configVo.getQueue());
         if (storeInfo.getStore() == null || storeInfo.getStore().isClosed()) {
             HashMap<String, Object> configMap = new HashMap<>();
             configMap.put("fileName", configVo.getQueue());
@@ -119,7 +123,7 @@ public class ControllerFactory {
         }
     }
 
-    private static void validate(StoreInfo storeInfo) throws InitializeException {
+    private static void checkFile(StoreInfo storeInfo) throws InitializeException {
         logger.debug("validate queue={}", storeInfo.getCONFIG().getQueue());
         FileQueueConfigVo config = storeInfo.getCONFIG();
         String queue = config.getQueue();
@@ -142,4 +146,106 @@ public class ControllerFactory {
             config.setRestoreMode(true);
         }
     }
+
+    public static void checkStore(String filePath) throws InitializeException{
+        MVStore store = null;
+        try {
+            store = new MVStore.Builder()
+                    .fileName(filePath)
+                    .readOnly()
+                    .open();
+
+            // 1. Write Format 버전 확인
+            int writeFormatVersion = getWriteFormatVersion(store);
+
+            // 2. lastChunkId 점검
+            int lastChunkId = getLastChunkIdFromFileStore(store);
+            int threshold = (int) (MAX_CHUNK_ID * CHUNK_ID_THRESHOLD_RATIO);
+            if (lastChunkId >= threshold) {
+                String msg = String.format("lastChunkId [%d] approaching MAX_ID [%d].", lastChunkId, MAX_CHUNK_ID);
+                logger.warn("⚠ {}", msg);
+                // 3이하 버전에서는 동작 이슈 발생 lastChunkId MAX 값 도달 시
+                if(writeFormatVersion < 3 ){
+                    throw new InitializeException(msg);
+                }
+            } else {
+                logger.info("✓ lastChunkId OK: {}", lastChunkId);
+            }
+
+            // 3. read-only 여부
+            if (store.isReadOnly()) {
+                logger.info("✓ Store is opened in read-only mode.");
+            }
+
+            // 4. unsaved changes 확인 및 대응
+            if (store.hasUnsavedChanges()) {
+                logger.warn("⚠ Store has unsaved changes. Consider rollback or recovery. Executing rollback...");
+                store.rollback();
+                if (store.hasUnsavedChanges()) {
+                    throw new InitializeException("Rollback failed. Store remains dirty.");
+                } else {
+                    logger.info("✓ Rollback completed. Store is now clean.");
+                }
+            } else {
+                logger.info("✓ Store has no unsaved changes.");
+            }
+
+            // 4. 헤더 정보 출력
+            Map<String, Object> meta = store.getStoreHeader();
+            for(Map.Entry<String, Object> entry : meta.entrySet()){
+                logger.info("[HEADER INFO] {} = {}", entry.getKey(), entry.getValue());
+            }
+
+        } catch (MVStoreException e) {
+            logger.error("❌ Failed to open MVStore. Possibly due to unsupported format or file corruption: {}", e.getMessage());
+        } catch (Exception e) {
+            logger.error("❌ Unexpected error during MVStore health check", e);
+        } finally {
+            if (store != null) {
+                try{
+                    store.close();
+                }catch (Exception ignore){}
+            }
+        }
+    }
+
+    public static int getWriteFormatVersion(MVStore store) {
+        Map<String, Object> header = store.getStoreHeader();
+        return header.get("format")==null ? 3 : Integer.parseInt(header.get("format").toString());
+    }
+
+    /**
+     * MVStore 내부의 FileStore 객체에서 lastChunkId 추출
+     */
+    private static int getLastChunkIdFromFileStore(MVStore store) throws InitializeException{
+        try {
+            // 시도 1: H2 2.2.x 이후 버전 (FileStore.lastChunkId)
+            Field fileStoreField = MVStore.class.getDeclaredField("fileStore");
+            fileStoreField.setAccessible(true);
+            Object fileStore = fileStoreField.get(store);
+
+            try {
+                Field lastChunkIdField = fileStore.getClass().getSuperclass()
+                        .getSuperclass().getDeclaredField("lastChunkId");
+                lastChunkIdField.setAccessible(true);
+                return lastChunkIdField.getInt(fileStore);
+            } catch (NoSuchFieldException e) {
+                // 시도 2: 혹시 모를 older 버전 호환용
+                logger.warn("⚠ Field 'lastChunkId' not found in FileStore. Trying MVStore...");
+            }
+
+        } catch (Exception e) {
+            logger.warn("⚠ Failed to access FileStore from MVStore. Possibly older version. Trying MVStore directly...");
+        }
+
+        // 시도 3: MVStore.lastChunkId (1.4 ~ 2.1 시절)
+        try {
+            Field legacyField = MVStore.class.getDeclaredField("lastChunkId");
+            legacyField.setAccessible(true);
+            return legacyField.getInt(store);
+        } catch (Exception e) {
+            throw new InitializeException("Unable to access lastChunkId. Unsupported or unknown MVStore structure.", e);
+        }
+    }
+
 }
