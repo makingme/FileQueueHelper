@@ -58,7 +58,9 @@ public class ControllerFactoryTest {
 
     @Test(expected = InitializeException.class)
     public void testCreateInvalidPath() {
-        ControllerFactory.create("/not/exist/path/queue.mv");
+        try(BaseController controller = ControllerFactory.create("/not/exist/path/queue.mv")){
+            controller.getSummaryInfo();
+        }
     }
 
     @Test
