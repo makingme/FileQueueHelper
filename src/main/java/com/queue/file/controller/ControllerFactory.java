@@ -92,15 +92,7 @@ public class ControllerFactory {
     private static void initialize(StoreInfo storeInfo) throws InitializeException {
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
         logger.debug("openStore queue={}", configVo.getQueue());
-
         validate(storeInfo);
-        int lastChunkId = getLastChunkId(configVo.getQueue());
-        if(configVo.isRestoreMode() && lastChunkId >= MAX_ID) {
-            logger.info("The lastChunkId has reached the internal limit({})", MAX_ID);
-            MVStoreTool.compact(configVo.getQueue(), configVo.isCompressMode());
-            logger.info("store is successfully compacted");
-        }
-
         if (storeInfo.getStore() == null || storeInfo.getStore().isClosed()) {
             HashMap<String, Object> configMap = new HashMap<>();
             configMap.put("fileName", configVo.getQueue());
@@ -148,31 +140,6 @@ public class ControllerFactory {
         }
         if (Files.exists(Paths.get(queue))) {
             config.setRestoreMode(true);
-        }
-    }
-
-    private static int getLastChunkId(String path) {
-        int lastChunkId = -1;
-        MVStore store = null;
-        try {
-            store = new MVStore.Builder().
-                    readOnly().
-                    fileName(path)
-                    .open();
-            Field lastChunkIdField = MVStore.class.getDeclaredField("lastChunkId");
-            lastChunkIdField.setAccessible(true);
-            lastChunkId = lastChunkIdField.getInt(store);
-            return lastChunkId;
-        } catch (ReflectiveOperationException e) {
-            throw new InitializeException("lastChunkId reflection failed", e);
-        }catch (Exception e) {
-            throw new RuntimeException("Failed to get lastChunkId via reflection", e);
-        } finally {
-            try {
-                if(store != null &&  !store.isClosed()){
-                    store.close();
-                }
-            }catch (Exception ignore){}
         }
     }
 }
