@@ -63,6 +63,10 @@ public class LoadTest {
         while (true) {
             try {
                 controller.write("p" + id + "-" + count++);
+                // 짧은 휴식으로 CPU 사용 줄이기
+                if (count % 100 == 0) {
+                    Thread.sleep(1);
+                }
             } catch (QueueWriteException e) {
                 throw new RuntimeException(e);
             }
