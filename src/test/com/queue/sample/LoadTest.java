@@ -26,6 +26,9 @@ public class LoadTest {
     private static final int PRODUCER_COUNT = 5;
     private static final int CONSUMER_COUNT = 3;
 
+    private static final java.util.concurrent.atomic.AtomicLong producedCount = new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong consumedCount = new java.util.concurrent.atomic.AtomicLong();
+
     public static void main(String[] args) throws Exception {
         Path file = Files.createTempFile("filequeue-load", ".mv");
         BaseController controller = ControllerFactory.create(file.toString());
@@ -53,8 +56,15 @@ public class LoadTest {
             t.start();
         }
 
+        long prevProduced = 0;
+        long prevConsumed = 0;
         while (true) {
             Thread.sleep(1000);
+            long p = producedCount.get();
+            long c = consumedCount.get();
+            logger.info("produced: {} (+{}), consumed: {} (+{})", p, (p - prevProduced), c, (c - prevConsumed));
+            prevProduced = p;
+            prevConsumed = c;
         }
     }
 
@@ -63,6 +73,7 @@ public class LoadTest {
         while (true) {
             try {
                 controller.write("p" + id + "-" + count++);
+                producedCount.incrementAndGet();
                 // 짧은 휴식으로 CPU 사용 줄이기
                 if (count % 100 == 0) {
                     Thread.sleep(1);
@@ -90,6 +101,7 @@ public class LoadTest {
                     List<FileQueueData> list = controller.read(executor, 20);
                     if (list != null && !list.isEmpty()) {
                         controller.readCommit(executor);
+                        consumedCount.addAndGet(list.size());
                         emptyCount = 0;
                     } else {
                         emptyCount = (emptyCount + 1) % Integer.MAX_VALUE;
