@@ -218,9 +218,19 @@ public class BaseController implements AutoCloseable{
         return dataAccess.getSummaryInfo();
     }
 
+    // 모든 파티션의 전체 데이터 정보 가져 오는 함수
+    public Map<String, List<FileQueueData>> getAllDataList() {
+        return dataAccess.getAllDataList();
+    }
+
     // 특정 파티션 데이터 목록 가져 오는 함수
     public List<FileQueueData> getPartitionDataList(String partitionName) {
         return dataAccess.getPartitionDataList(partitionName);
+    }
+
+    // 특정 파티션의 특정 데이터 정보 가져 오는 함수
+    public FileQueueData getData(String partitionName, Long transactionKey) {
+        return dataAccess.getData(partitionName, transactionKey);
     }
 
     // 특정 파티션 버퍼 목록 가져 오는 함수
@@ -228,19 +238,19 @@ public class BaseController implements AutoCloseable{
         return dataAccess.getPartitionBufferList(partitionName);
     }
 
+    // 특정 파티션의 특정 버퍼 정보 가져오는 함수
+    public List<FileQueueData> getBuffer(String partitionName, String executorName) {
+        return dataAccess.getBuffer(partitionName, executorName);
+    }
+
     // 특정 파티션 캐시 목록 가져 오는 함수
     public Map<String, Object> getPartitionCacheList(String partitionName) {
         return dataAccess.getPartitionCacheList(partitionName);
     }
 
-    // 모든 파티션의 전체 데이터 정보 가져 오는 함수
-    public Map<String, List<FileQueueData>> getAllDataList() {
-        return dataAccess.getAllDataList();
-    }
-
-    // 특정 파티션의 특정 데이터 정보 가져 오는 함수
-    public FileQueueData getData(String partitionName, Long transactionKey) {
-        return dataAccess.getData(partitionName, transactionKey);
+    // 특정 파티션의 특정 캐시 정보 가져오는 함수
+    public Object getCache(String partitionName, String cacheKey) {
+        return dataAccess.getCache(partitionName, cacheKey);
     }
 
     // 모든 파티션의 전체 데이터 정보 삭제 함수
@@ -260,11 +270,6 @@ public class BaseController implements AutoCloseable{
         dataAccess.removeData(partitionName, transactionKey);
     }
 
-    // 특정 파티션의 특정 버퍼 정보 가져오는 함수
-    public List<FileQueueData> getBuffer(String partitionName, String executorName) {
-        return dataAccess.getBuffer(partitionName, executorName);
-    }
-
     // 모든 파티션의 모든 버퍼 정보 삭제 함수
     public void clearAllBuffer() {
         logger.debug("clear all buffer");
@@ -281,11 +286,6 @@ public class BaseController implements AutoCloseable{
     public void clearBuffer(String partitionName, String executorName) {
         logger.debug("clear buffer partition={} executor={}", partitionName, executorName);
         dataAccess.clearBuffer(partitionName, executorName);
-    }
-
-    // 특정 파티션의 특정 캐시 정보 가져오는 함수
-    public Object getCache(String partitionName, String cacheKey) {
-        return dataAccess.getCache(partitionName, cacheKey);
     }
 
     // 모든 파티션의 모든 캐시 정보 삭제 함수
