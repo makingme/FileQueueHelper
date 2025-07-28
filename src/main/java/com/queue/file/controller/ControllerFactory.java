@@ -142,6 +142,11 @@ public class ControllerFactory {
         if (!Files.exists(p)) {
             throw new InitializeException("큐 활성화 실패: 존재하지 않은 경로 = 경로 정보:[" + queuePath + "]");
         }
+
+        if(!Files.isWritable(p)){
+            throw new InitializeException("큐 활성화 실패: 지정 파일이 쓰기 가능 상태가 아님 = 경로 정보:[" + queuePath + "]");
+        }
+
         if (Files.exists(Paths.get(queue))) {
             config.setRestoreMode(true);
         }
