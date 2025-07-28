@@ -54,7 +54,7 @@ public class PartitionManager {
                 int idx = schemaName.indexOf(Contents.DELIMITER);
                 if (idx <= 0) continue;
                 String partitionName = schemaName.substring(0, idx);
-                String suffix = schemaName.substring(idx + 1);
+                String suffix = schemaName.substring(idx + Contents.DELIMITER.length());
                 PartitionContext partitionContext = partitionContextMap.computeIfAbsent(partitionName, PartitionContext::new);
                 try {
                     switch (suffix) {

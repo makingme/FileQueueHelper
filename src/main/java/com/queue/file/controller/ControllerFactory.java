@@ -157,7 +157,6 @@ public class ControllerFactory {
         try {
             store = new MVStore.Builder()
                     .fileName(filePath)
-                    .readOnly()
                     .open();
 
             // 1. Write Format 버전 확인
@@ -177,12 +176,7 @@ public class ControllerFactory {
                 logger.info("✓ lastChunkId OK: {}", lastChunkId);
             }
 
-            // 3. read-only 여부
-            if (store.isReadOnly()) {
-                logger.info("✓ Store is opened in read-only mode.");
-            }
-
-            // 4. unsaved changes 확인 및 대응
+            // 3. unsaved changes 확인 및 대응
             if (store.hasUnsavedChanges()) {
                 logger.warn("⚠ Store has unsaved changes. Consider rollback or recovery. Executing rollback...");
                 store.rollback();
