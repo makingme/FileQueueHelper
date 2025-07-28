@@ -58,13 +58,22 @@ public class LoadTest {
 
         long prevProduced = 0;
         long prevConsumed = 0;
+        long lastCheck = System.currentTimeMillis();
         while (true) {
             Thread.sleep(1000);
+            long now = System.currentTimeMillis();
+            long interval = now - lastCheck;
             long p = producedCount.get();
             long c = consumedCount.get();
-            logger.info("produced: {} (+{}), consumed: {} (+{})", p, (p - prevProduced), c, (c - prevConsumed));
+            long pDelta = p - prevProduced;
+            long cDelta = c - prevConsumed;
+            double inTps = interval > 0 ? (pDelta * 1000.0) / interval : 0.0;
+            double outTps = interval > 0 ? (cDelta * 1000.0) / interval : 0.0;
+            logger.info("produced: {} (+{}), consumed: {} (+{}), input TPS: {}, output TPS: {}",
+                    p, pDelta, c, cDelta, String.format("%.2f", inTps), String.format("%.2f", outTps));
             prevProduced = p;
             prevConsumed = c;
+            lastCheck = now;
         }
     }
 
