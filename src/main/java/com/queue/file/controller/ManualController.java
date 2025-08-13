@@ -6,25 +6,25 @@ import com.queue.file.exception.QueueWriteException;
 import com.queue.file.vo.FileQueueData;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.h2.mvstore.DataUtils;
-import org.h2.mvstore.MVMap;
-import org.h2.mvstore.MVStore;
-import org.h2.mvstore.OffHeapStore;
+import org.h2.mvstore.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 //TODO:: 메모리 캐쉬 기능 제공 및 캐쉬 파일큐 저장 기능 추가, OOME 일 경우 트랜잭션 이상 현상 체크
 public class ManualController implements Controller{
     private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
+
+    // MAX_CHUNK_ID * CHUNK_ID_THRESHOLD_RATIO
+    private final int THRESHOLD = (int) (67108863 * 0.6);
 
     private MVStore store = null;
 
@@ -188,6 +188,22 @@ public class ManualController implements Controller{
             // 생성 실패 시 FALSE
             if(store == null || store.isClosed()) return false;
 
+            // 청크아이디가 기준치 초과 시 파일큐 새로 생성
+            if(reachLastChunkId(store)){
+
+                store.close();
+                MVStoreTool.compact(QUEUE, true);
+                store = openQueue();
+                if(store == null || store.isClosed()) {
+                    logger.info("<큐 재 오픈 : 실패> = 큐:[{}]", QUEUE_NAME);
+                    return false;
+                }
+                if(reachLastChunkId(store)){
+                    logger.info("<큐 재 오픈 : 실패> = 큐:[{}], 청크아이디 초기화 실패", QUEUE_NAME);
+                    return false;
+                }
+            }
+
             // 읽기 버퍼 스키마 오픈
             readBufferMap = store.openMap(READ_BUFFER+QUEUE_NAME);
 
@@ -215,6 +231,23 @@ public class ManualController implements Controller{
         }
 
         return true;
+    }
+
+    private boolean reachLastChunkId(MVStore store) throws Exception{
+        try {
+            store.getCurrentVersion();
+            Field lastChunkIdField = MVStore.class.getDeclaredField("lastChunkId");
+            lastChunkIdField.setAccessible(true);
+            int lastChunkId = lastChunkIdField.getInt(store);
+            boolean isOver = lastChunkId >= THRESHOLD;
+            if(isOver){
+                logger.info("<큐 재 오픈 : 수행> = 큐:[{}], 청크아이디 기준 치 초과[{}]", QUEUE_NAME, lastChunkId);
+            }
+            return isOver;
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+           throw new InitializeException("파일큐 버전 불 일치");
+        }
+
     }
 
     private MVStore openQueue() {
