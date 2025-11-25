@@ -239,8 +239,15 @@ public class PartitionManager {
         FileQueueCustomConfigVo customConfig = config.getCustomConfig();
 
         String separator = config.getQueuePath().endsWith(java.io.File.separator) ? "" : java.io.File.separator;
-        String partitionFileName = config.getQueuePath() + separator
-                                 + config.getQueueName() + "_" + partitionName + ".mv";
+
+        // 기본 파티션은 {queueName}.mv, 다른 파티션은 {queueName}_{partitionName}.mv
+        String partitionFileName;
+        if (Contents.DEFAULT_PARTITION.equals(partitionName)) {
+            partitionFileName = config.getQueuePath() + separator + config.getQueueName() + ".mv";
+        } else {
+            partitionFileName = config.getQueuePath() + separator
+                             + config.getQueueName() + "_" + partitionName + ".mv";
+        }
 
         try {
             java.util.HashMap<String, Object> configMap = new java.util.HashMap<>();
