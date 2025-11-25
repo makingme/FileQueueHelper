@@ -5,10 +5,12 @@ import com.queue.file.exception.QueueReadException;
 import com.queue.file.exception.QueueWriteException;
 import com.queue.file.exception.UnsteadyStateException;
 import com.queue.file.utils.Contents;
+import com.queue.file.vo.FileQueueCustomConfigVo;
 import com.queue.file.vo.FileQueueData;
 import com.queue.file.vo.PartitionContext;
 import com.queue.file.vo.PartitionSummaryVo;
 import com.queue.file.vo.StoreInfo;
+import org.h2.mvstore.MVStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
