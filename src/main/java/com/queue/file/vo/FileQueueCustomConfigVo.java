@@ -9,6 +9,9 @@ public class FileQueueCustomConfigVo {
     private boolean bulkCommit = false;
     private boolean stableMode = false;
 
+    // v2.1.0: 파티션별 독립 파일 모드 (기본값: false - 하위 호환성)
+    private boolean useSeparatePartitionFiles = false;
+
     public int getAutoCommitDelay() { return autoCommitDelay; }
     public void setAutoCommitDelay(int autoCommitDelay) { this.autoCommitDelay = autoCommitDelay; }
 
@@ -27,4 +30,8 @@ public class FileQueueCustomConfigVo {
     public boolean isStableMode() { return stableMode; }
     public void setStableMode(boolean stableMode) { this.stableMode = stableMode; }
 
+    public boolean isUseSeparatePartitionFiles() { return useSeparatePartitionFiles; }
+    public void setUseSeparatePartitionFiles(boolean useSeparatePartitionFiles) {
+        this.useSeparatePartitionFiles = useSeparatePartitionFiles;
+    }
 }

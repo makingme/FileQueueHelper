@@ -349,11 +349,34 @@ public class BaseController implements AutoCloseable{
                 }
             }
 
-            if (storeInfo.getStore() != null && !storeInfo.getStore().isClosed()) {
-                storeInfo.getStore().commit();
-                storeInfo.getStore().close();
-                storeInfo.setStoreOpenTime(null);
-                logger.info("store committed and closed");
+            FileQueueCustomConfigVo customConfig = storeInfo.getCONFIG().getCustomConfig();
+            boolean useSeparateFiles = customConfig != null && customConfig.isUseSeparatePartitionFiles();
+
+            if (useSeparateFiles) {
+                // 파티션별 독립 파일: 모든 파티션 Store close
+                Map<String, MVStore> partitionStores = storeInfo.getPartitionStores();
+                for (Map.Entry<String, MVStore> entry : partitionStores.entrySet()) {
+                    String partitionName = entry.getKey();
+                    MVStore partitionStore = entry.getValue();
+                    if (partitionStore != null && !partitionStore.isClosed()) {
+                        try {
+                            partitionStore.commit();
+                            partitionStore.close();
+                            logger.info("Partition [{}] store committed and closed", partitionName);
+                        } catch (Exception e) {
+                            logger.error("Error closing partition [{}] store", partitionName, e);
+                        }
+                    }
+                }
+                storeInfo.closeAllPartitionStores();
+            } else {
+                // Legacy 모드: 단일 Store close
+                if (storeInfo.getStore() != null && !storeInfo.getStore().isClosed()) {
+                    storeInfo.getStore().commit();
+                    storeInfo.getStore().close();
+                    storeInfo.setStoreOpenTime(null);
+                    logger.info("store committed and closed");
+                }
             }
 
         } catch (Exception e) {

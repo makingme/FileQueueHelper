@@ -81,6 +81,37 @@ public class ControllerFactory {
     }
 
     /**
+     * v2.1.0: 파티션별 독립 파일 모드로 Controller 생성
+     * @param queue - Path+QueueName
+     * @return BaseController with Separate Partition Files Mode
+     * @throws InitializeException - RuntimeException
+     */
+    public static BaseController createWithSeparatePartitionFiles(String queue) throws InitializeException {
+        logger.debug("create controller with separate partition files queue={}", queue);
+        FileQueueConfigVo configVo = new FileQueueConfigVo(queue);
+        FileQueueCustomConfigVo customConfigVo = new FileQueueCustomConfigVo();
+        customConfigVo.setUseSeparatePartitionFiles(true);
+        configVo.setCustomConfig(customConfigVo);
+        return createCustomController(configVo);
+    }
+
+    /**
+     * v2.1.0: 파티션별 독립 파일 모드로 Controller 생성
+     * @param queuePath - exist Path
+     * @param queueName - file queue name
+     * @return BaseController with Separate Partition Files Mode
+     * @throws InitializeException - RuntimeException
+     */
+    public static BaseController createWithSeparatePartitionFiles(String queuePath, String queueName) throws InitializeException {
+        logger.debug("create controller with separate partition files path={} name={}", queuePath, queueName);
+        FileQueueConfigVo configVo = new FileQueueConfigVo(queuePath, queueName);
+        FileQueueCustomConfigVo customConfigVo = new FileQueueCustomConfigVo();
+        customConfigVo.setUseSeparatePartitionFiles(true);
+        configVo.setCustomConfig(customConfigVo);
+        return createCustomController(configVo);
+    }
+
+    /**
      * @param configVo - custom config
      * @return BaseController Custom Config Mode Instance
      * @throws InitializeException - RuntimeException
@@ -94,8 +125,17 @@ public class ControllerFactory {
 
     private static void initialize(StoreInfo storeInfo) throws InitializeException {
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
-        logger.debug("openStore queue={}", configVo.getQueue());
+        FileQueueCustomConfigVo customConfigVo = configVo.getCustomConfig() == null ? new FileQueueCustomConfigVo() : configVo.getCustomConfig();
+        boolean useSeparateFiles = customConfigVo.isUseSeparatePartitionFiles();
+
+        logger.debug("openStore queue={} useSeparateFiles={}", configVo.getQueue(), useSeparateFiles);
         checkFile(storeInfo);
+
+        if (useSeparateFiles) {
+            logger.info("파티션별 독립 파일 모드로 초기화: {}", configVo.getQueueName());
+            return;
+        }
+
         checkStore(configVo.getQueue());
         if (storeInfo.getStore() == null || storeInfo.getStore().isClosed()) {
             HashMap<String, Object> configMap = new HashMap<>();

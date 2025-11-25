@@ -76,15 +76,43 @@ public class DataAccess {
 
             int totalDataCount = storeDataList.size();
             boolean isBulk = totalDataCount >= customConfigVo.getBulkSize();
+            boolean useSeparateFiles = customConfigVo != null && customConfigVo.isUseSeparatePartitionFiles();
+
             if (isBulk && customConfigVo.isBulkCommit()) {
-                storeInfo.getStore().commit();
+                if (useSeparateFiles) {
+                    // 파티션별 독립 파일: 각 파티션 Store에 commit
+                    for (String partitionName : groupedByPartition.keySet()) {
+                        MVStore partitionStore = storeInfo.getPartitionStore(partitionName);
+                        if (partitionStore != null && !partitionStore.isClosed()) {
+                            partitionStore.commit();
+                        }
+                    }
+                } else {
+                    // Legacy 모드: 단일 Store commit
+                    storeInfo.getStore().commit();
+                }
                 needsRollback = true;
             }
 
         }catch (Exception e) {
             if (needsRollback) {
+                boolean useSeparateFiles = customConfigVo != null && customConfigVo.isUseSeparatePartitionFiles();
                 try {
-                    storeInfo.getStore().rollback();
+                    if (useSeparateFiles) {
+                        // 파티션별 rollback
+                        for (String partitionName : groupedByPartition.keySet()) {
+                            MVStore partitionStore = storeInfo.getPartitionStore(partitionName);
+                            if (partitionStore != null && !partitionStore.isClosed()) {
+                                try {
+                                    partitionStore.rollback();
+                                } catch (Exception e2) {
+                                    e.addSuppressed(e2);
+                                }
+                            }
+                        }
+                    } else {
+                        storeInfo.getStore().rollback();
+                    }
                 }catch (Exception e1) {
                     e.addSuppressed(e1);
                 }
@@ -230,7 +258,15 @@ public class DataAccess {
                 }
             }
             if (isBulk && customConfigVo.isBulkCommit()) {
-                storeInfo.getStore().commit();
+                boolean useSeparateFiles = customConfigVo.isUseSeparatePartitionFiles();
+                if (useSeparateFiles) {
+                    MVStore partitionStore = storeInfo.getPartitionStore(partitionName);
+                    if (partitionStore != null && !partitionStore.isClosed()) {
+                        partitionStore.commit();
+                    }
+                } else {
+                    storeInfo.getStore().commit();
+                }
                 isCommited = true;
             }
             statsTracker.keepRecord(partitionName, executorName, queueDataList.size(), ActionType.OUTPUT);
@@ -240,7 +276,15 @@ public class DataAccess {
             throw new QueueReadException("큐:[" + configVo.getQueueName() + "] " + e.getMessage(), e);
         } catch (Exception e) {
             if (isCommited) {
-                storeInfo.getStore().rollback();
+                boolean useSeparateFiles = customConfigVo.isUseSeparatePartitionFiles();
+                if (useSeparateFiles) {
+                    MVStore partitionStore = storeInfo.getPartitionStore(partitionName);
+                    if (partitionStore != null && !partitionStore.isClosed()) {
+                        partitionStore.rollback();
+                    }
+                } else {
+                    storeInfo.getStore().rollback();
+                }
             }
             logger.error("read failed", e);
             throw new QueueReadException("<읽기 : 실패> = 큐:[" + configVo.getQueueName() + "]", e);

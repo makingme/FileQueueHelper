@@ -34,6 +34,18 @@ public class PartitionManager {
 
     private void initializePartitions() throws InitializeException {
         logger.debug("initializePartitions");
+        FileQueueCustomConfigVo customConfig = storeInfo.getCONFIG().getCustomConfig();
+        boolean useSeparateFiles = customConfig != null && customConfig.isUseSeparatePartitionFiles();
+
+        if (useSeparateFiles) {
+            initializePartitionsWithSeparateFiles();
+        } else {
+            initializePartitionsWithSingleFile();
+        }
+    }
+
+    private void initializePartitionsWithSingleFile() throws InitializeException {
+        logger.debug("initializePartitionsWithSingleFile");
         MVStore store = storeInfo.getStore();
         if (store == null || store.isClosed()) {
             throw new InitializeException("스토어가 초기화되지 않음 또는 닫힘");
@@ -73,6 +85,16 @@ public class PartitionManager {
                 }
             }
             realignAllPartitions();
+        }
+    }
+
+    private void initializePartitionsWithSeparateFiles() throws InitializeException {
+        logger.debug("initializePartitionsWithSeparateFiles");
+        // 기본 파티션만 초기화 (다른 파티션은 lazy loading)
+        try {
+            getOrCreatePartitionContext(Contents.DEFAULT_PARTITION);
+        } catch (Exception e) {
+            throw new InitializeException("기본 파티션 초기화 실패: " + e.getMessage(), e);
         }
     }
 
@@ -161,14 +183,88 @@ public class PartitionManager {
     }
 
     public PartitionContext getPartitionContext(String partitionName) throws InitializeException{
-        return partitionContextMap.computeIfAbsent(partitionName, k -> {
-            MVStore store = storeInfo.getStore();
-            PartitionContext context = new PartitionContext(k);
-            context.setDataMap(store.openMap(Contents.getDataMapName(k)));
-            context.setReadBufferMap(store.openMap(Contents.getReadBufferName(k)));
-            context.setCacheMap(store.openMap(Contents.getCacheName(k)));
-         return context;
-        });
+        FileQueueCustomConfigVo customConfig = storeInfo.getCONFIG().getCustomConfig();
+        boolean useSeparateFiles = customConfig != null && customConfig.isUseSeparatePartitionFiles();
+
+        if (useSeparateFiles) {
+            return getOrCreatePartitionContext(partitionName);
+        } else {
+            return partitionContextMap.computeIfAbsent(partitionName, k -> {
+                MVStore store = storeInfo.getStore();
+                PartitionContext context = new PartitionContext(k);
+                context.setDataMap(store.openMap(Contents.getDataMapName(k)));
+                context.setReadBufferMap(store.openMap(Contents.getReadBufferName(k)));
+                context.setCacheMap(store.openMap(Contents.getCacheName(k)));
+                return context;
+            });
+        }
+    }
+
+    private PartitionContext getOrCreatePartitionContext(String partitionName) throws InitializeException {
+        PartitionContext existingContext = partitionContextMap.get(partitionName);
+        if (existingContext != null) {
+            return existingContext;
+        }
+
+        synchronized (partitionContextMap) {
+            existingContext = partitionContextMap.get(partitionName);
+            if (existingContext != null) {
+                return existingContext;
+            }
+
+            try {
+                MVStore partitionStore = getOrCreatePartitionStore(partitionName);
+                PartitionContext context = new PartitionContext(partitionName);
+                context.setDataMap(partitionStore.openMap(Contents.getDataMapName(partitionName)));
+                context.setReadBufferMap(partitionStore.openMap(Contents.getReadBufferName(partitionName)));
+                context.setCacheMap(partitionStore.openMap(Contents.getCacheName(partitionName)));
+                partitionContextMap.put(partitionName, context);
+
+                realignDataKey(partitionName);
+
+                return context;
+            } catch (Exception e) {
+                throw new InitializeException("파티션 [" + partitionName + "] 생성 실패: " + e.getMessage(), e);
+            }
+        }
+    }
+
+    private MVStore getOrCreatePartitionStore(String partitionName) throws InitializeException {
+        MVStore existingStore = storeInfo.getPartitionStore(partitionName);
+        if (existingStore != null && !existingStore.isClosed()) {
+            return existingStore;
+        }
+
+        FileQueueConfigVo config = storeInfo.getCONFIG();
+        FileQueueCustomConfigVo customConfig = config.getCustomConfig();
+
+        String separator = config.getQueuePath().endsWith(java.io.File.separator) ? "" : java.io.File.separator;
+        String partitionFileName = config.getQueuePath() + separator
+                                 + config.getQueueName() + "_" + partitionName + ".mv";
+
+        try {
+            java.util.HashMap<String, Object> configMap = new java.util.HashMap<>();
+            configMap.put("fileName", partitionFileName);
+            if (config.isReadOnlyMode()) configMap.put("readOnly", 1);
+            if (config.isCompressMode()) configMap.put("compress", 1);
+            configMap.put("autoCommitBufferSize", customConfig.getAutoCommitMemory());
+
+            String configInfo = org.h2.mvstore.DataUtils.appendMap(new StringBuilder(), configMap).toString();
+            org.h2.mvstore.MVStore.Builder builder = org.h2.mvstore.MVStore.Builder.fromString(configInfo);
+            if (config.isEncryptMode()) builder.encryptionKey("123ENCRYPT_KEY321".toCharArray());
+
+            MVStore partitionStore = builder.open();
+            partitionStore.setAutoCommitDelay(customConfig.getAutoCommitDelay());
+            partitionStore.setCacheSize(customConfig.getCacheSize());
+            partitionStore.compact(1, 50);
+
+            storeInfo.setPartitionStore(partitionName, partitionStore);
+            logger.info("파티션 [{}] 독립 파일 생성: {}", partitionName, partitionFileName);
+
+            return partitionStore;
+        } catch (Exception e) {
+            throw new InitializeException("파티션 [" + partitionName + "] Store 생성 실패: " + e.getMessage(), e);
+        }
     }
 
     public Map<String, PartitionContext> getPartitionContextMap() {
