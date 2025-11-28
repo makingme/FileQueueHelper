@@ -19,29 +19,29 @@ public class DataAccess {
     private static final Logger logger = LoggerFactory.getLogger(DataAccess.class);
     private final StatsTracker statsTracker = new StatsTracker();
     private final StoreInfo storeInfo;
-    private final PartitionManager partitionManager;
+    private final QueueContext queueContext;
 
-    public DataAccess(StoreInfo storeInfo, PartitionManager partitionManager) {
+    public DataAccess(StoreInfo storeInfo, QueueContext queueContext) {
         this.storeInfo = storeInfo;
-        this.partitionManager = partitionManager;
+        this.queueContext = queueContext;
     }
 
-    public void write(String tag, String partition, String executorName, String data) throws QueueException {
+    public void write(String tag, String executorName, String data) throws QueueException {
         if (data == null || data.isEmpty()) {
             return;
         }
-        logger.debug("write tag={} partition={} executor={}", tag, partition, executorName);
-        writeQueueData(executorName, Collections.singletonList(new FileQueueData(partition, tag, data)));
+        logger.debug("write tag={} executor={}", tag, executorName);
+        writeQueueData(executorName, Collections.singletonList(new FileQueueData("", tag, data)));
     }
 
-    public void writeBulk(String tag, String partition, String executorName, List<String> dataList) throws QueueException {
+    public void writeBulk(String tag, String executorName, List<String> dataList) throws QueueException {
         if (dataList ==null || dataList.isEmpty()) {
             return;
         }
-        logger.debug("writeBulk tag={} partition={} executor={} size={}", tag, partition, executorName, dataList.size());
+        logger.debug("writeBulk tag={} executor={} size={}", tag, executorName, dataList.size());
         List<FileQueueData> storeDataList = new ArrayList<>(dataList.size());
         for (String data : dataList) {
-            storeDataList.add(new FileQueueData(partition, tag, data));
+            storeDataList.add(new FileQueueData("", tag, data));
         }
         writeQueueData(executorName, storeDataList);
     }

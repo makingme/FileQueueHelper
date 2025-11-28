@@ -7,9 +7,10 @@ import com.queue.file.exception.UnsteadyStateException;
 import com.queue.file.utils.Contents;
 import com.queue.file.vo.FileQueueCustomConfigVo;
 import com.queue.file.vo.FileQueueData;
-import com.queue.file.vo.PartitionContext;
+import com.queue.file.vo.QueueContext;
 import com.queue.file.vo.PartitionSummaryVo;
 import com.queue.file.vo.StoreInfo;
+import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,51 +25,72 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class BaseController implements AutoCloseable{
     private static final Logger logger = LoggerFactory.getLogger(BaseController.class);
     private final StoreInfo storeInfo;
-    private final PartitionManager partitionManager;
+    private final QueueContext queueContext;
     private final DataAccess dataAccess;
 
     BaseController(StoreInfo storeInfo) {
         this.storeInfo = storeInfo;
-        this.partitionManager = new PartitionManager(storeInfo);
-        this.dataAccess = new DataAccess(storeInfo, partitionManager);
+        this.queueContext = initializeQueueContext(storeInfo);
+        this.dataAccess = new DataAccess(storeInfo, queueContext);
+    }
+
+    private QueueContext initializeQueueContext(StoreInfo storeInfo) {
+        QueueContext context = new QueueContext();
+        MVStore store = storeInfo.getStore();
+
+        // MVMap 초기화
+        context.setDataMap(store.openMap(Contents.getDataMapName()));
+        context.setReadBufferMap(store.openMap(Contents.getReadBufferName()));
+        context.setCacheMap(store.openMap(Contents.getCacheName()));
+
+        // 데이터 키 재정렬
+        realignDataKey(context);
+
+        return context;
+    }
+
+    private void realignDataKey(QueueContext context) {
+        var dataKeyList = context.getTransactionKeyList();
+        var dataMap = context.getDataMap();
+
+        if (dataMap == null || dataMap.isEmpty()) {
+            context.getIndexVo().setTransactionIndex(1L);
+            return;
+        }
+
+        dataKeyList.clear();
+        dataKeyList.addAll(dataMap.keySet());
+
+        long maxKey = dataKeyList.isEmpty() ? 0L : dataKeyList.last();
+        context.getIndexVo().setTransactionIndex(maxKey + 1);
     }
 
     public StoreInfo getStoreInfo() { return storeInfo; }
 
     public void write(String data) throws QueueWriteException {
-        logger.debug("write default partition data: {}", data);
+        logger.debug("write data: {}", data);
         try {
-            dataAccess.write("", Contents.DEFAULT_PARTITION, Thread.currentThread().getName(), data);
+            dataAccess.write("", Thread.currentThread().getName(), data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);
         }
     }
 
-    public void write(String partition, String data) throws QueueWriteException {
-        logger.debug("write data: partition={}, data={}", partition, data);
+    public void write(String executorName, String data) throws QueueWriteException {
+        logger.debug("write data: executor={}, data={}", executorName, data);
         try {
-            dataAccess.write("", partition, Thread.currentThread().getName(), data);
+            dataAccess.write("", executorName, data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);
         }
     }
 
-    public void write(String partition, String executorName, String data) throws QueueWriteException {
-        logger.debug("write data: partition={}, executor={}, data={}", partition, executorName, data);
+    public void write(String tag, String executorName, String data) throws QueueWriteException {
+        logger.debug("write data: tag={}, executor={}", tag, executorName);
         try {
-            dataAccess.write("", partition, executorName, data);
-        }catch (QueueException e){
-            logger.error("Write failed", e);
-            throw new QueueWriteException(e);
-        }
-    }
-
-    public void write(String tag, String partition, String executorName, String data) throws QueueWriteException {
-        logger.debug("write data: tag={}, partition={}, executor={}", tag, partition, executorName);
-        try {
-            dataAccess.write(tag, partition, executorName, data);
+            dataAccess.write(tag, executorName, data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);

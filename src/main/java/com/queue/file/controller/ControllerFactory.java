@@ -80,36 +80,6 @@ public class ControllerFactory {
         return createCustomController(configVo);
     }
 
-    /**
-     * v2.1.0: 파티션별 독립 파일 모드로 Controller 생성
-     * @param queue - Path+QueueName
-     * @return BaseController with Separate Partition Files Mode
-     * @throws InitializeException - RuntimeException
-     */
-    public static BaseController createWithSeparatePartitionFiles(String queue) throws InitializeException {
-        logger.debug("create controller with separate partition files queue={}", queue);
-        FileQueueConfigVo configVo = new FileQueueConfigVo(queue);
-        FileQueueCustomConfigVo customConfigVo = new FileQueueCustomConfigVo();
-        customConfigVo.setUseSeparatePartitionFiles(true);
-        configVo.setCustomConfig(customConfigVo);
-        return createCustomController(configVo);
-    }
-
-    /**
-     * v2.1.0: 파티션별 독립 파일 모드로 Controller 생성
-     * @param queuePath - exist Path
-     * @param queueName - file queue name
-     * @return BaseController with Separate Partition Files Mode
-     * @throws InitializeException - RuntimeException
-     */
-    public static BaseController createWithSeparatePartitionFiles(String queuePath, String queueName) throws InitializeException {
-        logger.debug("create controller with separate partition files path={} name={}", queuePath, queueName);
-        FileQueueConfigVo configVo = new FileQueueConfigVo(queuePath, queueName);
-        FileQueueCustomConfigVo customConfigVo = new FileQueueCustomConfigVo();
-        customConfigVo.setUseSeparatePartitionFiles(true);
-        configVo.setCustomConfig(customConfigVo);
-        return createCustomController(configVo);
-    }
 
     /**
      * @param configVo - custom config
@@ -126,41 +96,59 @@ public class ControllerFactory {
     private static void initialize(StoreInfo storeInfo) throws InitializeException {
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
         FileQueueCustomConfigVo customConfigVo = configVo.getCustomConfig() == null ? new FileQueueCustomConfigVo() : configVo.getCustomConfig();
-        boolean useSeparateFiles = customConfigVo.isUseSeparatePartitionFiles();
 
-        logger.debug("openStore queue={} useSeparateFiles={}", configVo.getQueue(), useSeparateFiles);
+        logger.debug("openStore queue={}", configVo.getQueue());
         checkFile(storeInfo);
 
-        if (useSeparateFiles) {
-            logger.info("파티션별 독립 파일 모드로 초기화: {}", configVo.getQueueName());
-            return;
-        }
-
-        checkStore(configVo.getQueue());
+        // 큐 데이터용 MVStore 생성
+        String queuePath = configVo.getQueue();
+        checkStore(queuePath);
         if (storeInfo.getStore() == null || storeInfo.getStore().isClosed()) {
-            HashMap<String, Object> configMap = new HashMap<>();
-            configMap.put("fileName", configVo.getQueue());
-            if (configVo.isReadOnlyMode()) configMap.put("readOnly", 1);
-            if (configVo.isCompressMode()) configMap.put("compress", 1);
-
-            FileQueueCustomConfigVo customConfigVo = configVo.getCustomConfig() == null ? new FileQueueCustomConfigVo() : configVo.getCustomConfig();
-            configMap.put("autoCommitBufferSize", customConfigVo.getAutoCommitMemory());
-
             try {
-                String configInfo = DataUtils.appendMap(new StringBuilder(), configMap).toString();
-                MVStore.Builder builder = MVStore.Builder.fromString(configInfo);
-                if (configVo.isEncryptMode()) builder.encryptionKey("123ENCRYPT_KEY321".toCharArray());
-                MVStore store = builder.open();
-                store.setAutoCommitDelay(customConfigVo.getAutoCommitDelay());
-                store.setCacheSize(customConfigVo.getCacheSize());
-                store.compact(1, 50);
-                storeInfo.setStore(store);
-                storeInfo.setStoreOpenTime(LocalDateTime.now());
+                MVStore queueStore = createMVStore(configVo, queuePath, customConfigVo);
+                storeInfo.setStore(queueStore);
             } catch (Exception e) {
-                logger.error("openStore failed", e);
+                logger.error("queueStore open failed", e);
                 throw new InitializeException("큐 오픈 실패: 큐=[" + configVo.getQueueName() + "], 에러=[" + e.getMessage() + "]", e);
             }
         }
+
+        // 캐시용 MVStore 생성 (v2.1.0)
+        String cachePath = queuePath.replace(".mv", "_cache.mv");
+        if (storeInfo.getCacheStore() == null || storeInfo.getCacheStore().isClosed()) {
+            try {
+                MVStore cacheStore = createMVStore(configVo, cachePath, customConfigVo);
+                storeInfo.setCacheStore(cacheStore);
+                logger.info("캐시 파일 생성: {}", cachePath);
+            } catch (Exception e) {
+                logger.error("cacheStore open failed", e);
+                throw new InitializeException("캐시 스토어 오픈 실패: 큐=[" + configVo.getQueueName() + "], 에러=[" + e.getMessage() + "]", e);
+            }
+        }
+    }
+
+    /**
+     * v2.1.0: MVStore 생성 헬퍼 메서드
+     */
+    private static MVStore createMVStore(FileQueueConfigVo configVo, String filePath, FileQueueCustomConfigVo customConfigVo) {
+        HashMap<String, Object> configMap = new HashMap<>();
+        configMap.put("fileName", filePath);
+        if (configVo.isReadOnlyMode()) configMap.put("readOnly", 1);
+        if (configVo.isCompressMode()) configMap.put("compress", 1);
+        configMap.put("autoCommitBufferSize", customConfigVo.getAutoCommitMemory());
+
+        String configInfo = DataUtils.appendMap(new StringBuilder(), configMap).toString();
+        MVStore.Builder builder = MVStore.Builder.fromString(configInfo);
+        if (configVo.isEncryptMode()) {
+            builder.encryptionKey("123ENCRYPT_KEY321".toCharArray());
+        }
+
+        MVStore store = builder.open();
+        store.setAutoCommitDelay(customConfigVo.getAutoCommitDelay());
+        store.setCacheSize(customConfigVo.getCacheSize());
+        store.compact(1, 50);
+
+        return store;
     }
 
     private static void checkFile(StoreInfo storeInfo) throws InitializeException {

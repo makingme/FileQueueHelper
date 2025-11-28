@@ -5,7 +5,10 @@
       "Bash(git add:*)",
       "Bash(mvn test:*)",
       "Bash(where mvn:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git commit:*)",
+      "Bash(git rm:*)",
+      "Bash(mvn compile:*)"
     ],
     "deny": [],
     "ask": []
