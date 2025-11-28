@@ -8,7 +8,8 @@
       "Bash(find:*)",
       "Bash(git commit:*)",
       "Bash(git rm:*)",
-      "Bash(mvn compile:*)"
+      "Bash(mvn compile:*)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

@@ -25,44 +25,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class BaseController implements AutoCloseable{
     private static final Logger logger = LoggerFactory.getLogger(BaseController.class);
     private final StoreInfo storeInfo;
-    private final QueueContext queueContext;
+    private final PartitionManager partitionManager;
     private final DataAccess dataAccess;
 
     BaseController(StoreInfo storeInfo) {
         this.storeInfo = storeInfo;
-        this.queueContext = initializeQueueContext(storeInfo);
-        this.dataAccess = new DataAccess(storeInfo, queueContext);
-    }
-
-    private QueueContext initializeQueueContext(StoreInfo storeInfo) {
-        QueueContext context = new QueueContext();
-        MVStore store = storeInfo.getStore();
-
-        // MVMap 초기화
-        context.setDataMap(store.openMap(Contents.getDataMapName()));
-        context.setReadBufferMap(store.openMap(Contents.getReadBufferName()));
-        context.setCacheMap(store.openMap(Contents.getCacheName()));
-
-        // 데이터 키 재정렬
-        realignDataKey(context);
-
-        return context;
-    }
-
-    private void realignDataKey(QueueContext context) {
-        var dataKeyList = context.getTransactionKeyList();
-        var dataMap = context.getDataMap();
-
-        if (dataMap == null || dataMap.isEmpty()) {
-            context.getIndexVo().setTransactionIndex(1L);
-            return;
-        }
-
-        dataKeyList.clear();
-        dataKeyList.addAll(dataMap.keySet());
-
-        long maxKey = dataKeyList.isEmpty() ? 0L : dataKeyList.last();
-        context.getIndexVo().setTransactionIndex(maxKey + 1);
+        this.partitionManager = new PartitionManager(storeInfo);
+        this.dataAccess = new DataAccess(storeInfo, partitionManager);
     }
 
     public StoreInfo getStoreInfo() { return storeInfo; }
@@ -70,27 +39,37 @@ public class BaseController implements AutoCloseable{
     public void write(String data) throws QueueWriteException {
         logger.debug("write data: {}", data);
         try {
-            dataAccess.write("", Thread.currentThread().getName(), data);
+            dataAccess.write("", Contents.DEFAULT_PARTITION, Thread.currentThread().getName(), data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);
         }
     }
 
-    public void write(String executorName, String data) throws QueueWriteException {
-        logger.debug("write data: executor={}, data={}", executorName, data);
+    public void write(String partition, String data) throws QueueWriteException {
+        logger.debug("write data: partition={}, data={}", partition, data);
         try {
-            dataAccess.write("", executorName, data);
+            dataAccess.write("", partition, Thread.currentThread().getName(), data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);
         }
     }
 
-    public void write(String tag, String executorName, String data) throws QueueWriteException {
-        logger.debug("write data: tag={}, executor={}", tag, executorName);
+    public void write(String partition, String executorName, String data) throws QueueWriteException {
+        logger.debug("write data: partition={}, executor={}, data={}", partition, executorName, data);
         try {
-            dataAccess.write(tag, executorName, data);
+            dataAccess.write("", partition, executorName, data);
+        }catch (QueueException e){
+            logger.error("Write failed", e);
+            throw new QueueWriteException(e);
+        }
+    }
+
+    public void write(String tag, String partition, String executorName, String data) throws QueueWriteException {
+        logger.debug("write data: tag={}, partition={}, executor={}", tag, partition, executorName);
+        try {
+            dataAccess.write(tag, partition, executorName, data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);
@@ -340,77 +319,59 @@ public class BaseController implements AutoCloseable{
     public void close() {
         logger.info("AutoCloseable#close: Graceful shutdown start");
 
-        List<ReentrantReadWriteLock.WriteLock> acquiredLocks = new ArrayList<>();
+        QueueContext ctx = partitionManager.getQueueContext();
+        ReentrantReadWriteLock.WriteLock wl = ctx.getLock().writeLock();
+
+        boolean locked = false;
+        final int maxRetry = 3;
+        final long timeoutPerTryMillis = 5000L;
+
         try {
-            List<String> partitions = new ArrayList<>(partitionManager.getPartitionContextMap().keySet());
-            Collections.sort(partitions);
-
-            for (String partition : partitions) {
-                PartitionContext ctx = partitionManager.getPartitionContextMap().get(partition);
-                ReentrantReadWriteLock.WriteLock wl = ctx.getLock().writeLock();
-
-                boolean locked = false;
-                final int maxRetry = 3;
-                final long timeoutPerTryMillis = 5000L;
-
-                for (int i = 0; i < maxRetry; i++) {
-                    try {
-                        if (wl.tryLock(timeoutPerTryMillis, TimeUnit.MILLISECONDS)) {
-                            acquiredLocks.add(wl);
-                            logger.debug("Lock acquired for partition {} (attempt {})", partition, i + 1);
-                            locked = true;
-                            break;
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        logger.warn("Interrupted while locking {}", partition);
+            // 락 획득 시도
+            for (int i = 0; i < maxRetry; i++) {
+                try {
+                    if (wl.tryLock(timeoutPerTryMillis, TimeUnit.MILLISECONDS)) {
+                        logger.debug("Lock acquired for queue (attempt {})", i + 1);
+                        locked = true;
                         break;
                     }
-                }
-
-                if (!locked) {
-                    logger.error("Failed to lock partition {} after retries", partition);
-                }
-            }
-
-            FileQueueCustomConfigVo customConfig = storeInfo.getCONFIG().getCustomConfig();
-            boolean useSeparateFiles = customConfig != null && customConfig.isUseSeparatePartitionFiles();
-
-            if (useSeparateFiles) {
-                // 파티션별 독립 파일: 모든 파티션 Store close
-                Map<String, MVStore> partitionStores = storeInfo.getPartitionStores();
-                for (Map.Entry<String, MVStore> entry : partitionStores.entrySet()) {
-                    String partitionName = entry.getKey();
-                    MVStore partitionStore = entry.getValue();
-                    if (partitionStore != null && !partitionStore.isClosed()) {
-                        try {
-                            partitionStore.commit();
-                            partitionStore.close();
-                            logger.info("Partition [{}] store committed and closed", partitionName);
-                        } catch (Exception e) {
-                            logger.error("Error closing partition [{}] store", partitionName, e);
-                        }
-                    }
-                }
-                storeInfo.closeAllPartitionStores();
-            } else {
-                // Legacy 모드: 단일 Store close
-                if (storeInfo.getStore() != null && !storeInfo.getStore().isClosed()) {
-                    storeInfo.getStore().commit();
-                    storeInfo.getStore().close();
-                    storeInfo.setStoreOpenTime(null);
-                    logger.info("store committed and closed");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.warn("Interrupted while locking queue");
+                    break;
                 }
             }
+
+            if (!locked) {
+                logger.error("Failed to lock queue after retries");
+            }
+
+            // Store close (큐 + 캐시)
+            storeInfo.closeAll();
+            logger.info("Queue and cache stores committed and closed");
 
         } catch (Exception e) {
             logger.error("Error during graceful close", e);
         } finally {
-            for (int i = acquiredLocks.size() - 1; i >= 0; i--) {
+            if (locked) {
                 try {
-                    acquiredLocks.get(i).unlock();
+                    wl.unlock();
                 } catch (Exception ignore) {}
             }
         }
+    }
+
+    /**
+     * v2.1.0: 캐시 Store 접근
+     */
+    public MVStore getCacheStore() {
+        return storeInfo.getCacheStore();
+    }
+
+    /**
+     * v2.1.0: 캐시 MVMap 직접 열기
+     */
+    public <K, V> MVMap<K, V> openCacheMap(String mapName) {
+        return storeInfo.getCacheStore().openMap(mapName);
     }
 }
