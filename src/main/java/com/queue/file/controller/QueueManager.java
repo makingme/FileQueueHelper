@@ -14,17 +14,17 @@ import java.nio.file.Paths;
 import java.util.Collections;
 
 /**
- * v2.1.0: Simplified PartitionManager (single queue only, no partition concept)
+ * v3.0.0: Manages single queue context (partition concept completely removed)
  * @since : 2025-11-28
  */
-public class PartitionManager {
-    private static final Logger logger = LoggerFactory.getLogger(PartitionManager.class);
+public class QueueManager {
+    private static final Logger logger = LoggerFactory.getLogger(QueueManager.class);
     private final StoreInfo storeInfo;
     private final QueueContext queueContext;
 
-    public PartitionManager(StoreInfo storeInfo) {
+    public QueueManager(StoreInfo storeInfo) {
         this.storeInfo = storeInfo;
-        logger.debug("initialize PartitionManager (v2.1.0 - single queue mode)");
+        logger.debug("initialize QueueManager (v3.0.0 - single queue only)");
         this.queueContext = initializeQueue();
     }
 
@@ -44,14 +44,14 @@ public class PartitionManager {
             throw new InitializeException("큐 데이터 오픈 중 예외 발생: " + e.getMessage());
         }
 
-        realignDataKey(context);
+        realignDataKey();
         return context;
     }
 
-    private void realignDataKey(QueueContext context) throws UnsteadyStateException {
+    public void realignDataKey() throws UnsteadyStateException {
         logger.debug("realignDataKey");
-        var dataKeyList = context.getTransactionKeyList();
-        MVMap<Long, FileQueueData> dataMap = context.getDataMap();
+        var dataKeyList = queueContext.getTransactionKeyList();
+        MVMap<Long, FileQueueData> dataMap = queueContext.getDataMap();
 
         if(dataMap == null) {
             throw new UnsteadyStateException("데이터 영역이 존재하지 않음");
@@ -66,9 +66,9 @@ public class PartitionManager {
             dataKeyList.clear();
             dataKeyList.addAll(dataMap.keySet());
             DataSyncInfo dataSyncInfo = new DataSyncInfo(dataCount, keyCount, dataCount - keyCount, Math.max(dataMapMaxKey, keyListMaxKey));
-            PartitionIndexVo indexVo = context.getIndexVo();
+            PartitionIndexVo indexVo = queueContext.getIndexVo();
             indexVo.setTransactionIndex(dataSyncInfo.getMaxKey() + 1);
-            context.setSyncInfo(dataSyncInfo);
+            queueContext.setSyncInfo(dataSyncInfo);
         }
     }
 
@@ -94,13 +94,6 @@ public class PartitionManager {
         if (!Files.exists(Paths.get(storeInfo.getCONFIG().getQueue()))) {
             throw new UnsteadyStateException(storeInfo.getCONFIG().getQueue() + " 파일큐를 찾을 수 없음 - 삭제됨");
         }
-    }
-
-    /**
-     * v2.1.0: Always returns the single queue context (partition parameter ignored for compatibility)
-     */
-    public QueueContext getPartitionContext(String partitionName) throws InitializeException{
-        return queueContext;
     }
 
     public QueueContext getQueueContext() {
