@@ -12,6 +12,9 @@ import java.util.List;
 
 import static org.junit.Assert.*;
 
+/**
+ * v3.0.0: Updated for single queue (partition concept removed)
+ */
 public class DataAccessTest {
 
     @Test
@@ -21,16 +24,15 @@ public class DataAccessTest {
         StoreInfo storeInfo = new StoreInfo(config);
         storeInfo.setStore(new MVStore.Builder().open());
         storeInfo.setStoreOpenTime(LocalDateTime.now());
-        PartitionManager pm = new PartitionManager(storeInfo);
-        DataAccess da = new DataAccess(storeInfo, pm);
+        QueueManager qm = new QueueManager(storeInfo);
+        DataAccess da = new DataAccess(storeInfo, qm);
 
-        String partition = "p1";
         String executor = "exec";
-        da.write("tag", partition, executor, "data1");
-        FileQueueData read = da.read(partition, executor);
+        da.write("tag", executor, "data1");
+        FileQueueData read = da.read(executor);
         assertNotNull(read);
         assertEquals("data1", read.getData());
-        da.readCommit(partition, executor);
+        da.readCommit(executor);
 
         Files.deleteIfExists(file);
     }
@@ -42,18 +44,17 @@ public class DataAccessTest {
         StoreInfo storeInfo = new StoreInfo(config);
         storeInfo.setStore(new MVStore.Builder().open());
         storeInfo.setStoreOpenTime(LocalDateTime.now());
-        PartitionManager pm = new PartitionManager(storeInfo);
-        DataAccess da = new DataAccess(storeInfo, pm);
+        QueueManager qm = new QueueManager(storeInfo);
+        DataAccess da = new DataAccess(storeInfo, qm);
 
-        String partition = "p2";
         String executor = "exec";
         List<String> dataList = Arrays.asList("d1", "d2", "d3");
-        da.writeBulk("tag", partition, executor, dataList);
-        List<FileQueueData> readList = da.read(partition, executor, 3);
+        da.writeBulk("tag", executor, dataList);
+        List<FileQueueData> readList = da.read(executor, 3);
         assertNotNull(readList);
         assertEquals(3, readList.size());
         assertEquals("d1", readList.get(0).getData());
-        da.readCommit(partition, executor);
+        da.readCommit(executor);
 
         Files.deleteIfExists(file);
     }

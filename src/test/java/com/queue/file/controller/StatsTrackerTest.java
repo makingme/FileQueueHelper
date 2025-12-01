@@ -10,20 +10,22 @@ import java.time.LocalDateTime;
 
 import static org.junit.Assert.*;
 
+/**
+ * v3.0.0: Updated for single queue (partition concept removed)
+ */
 public class StatsTrackerTest {
 
     @Test
     public void testKeepRecordCounts() {
         StatsTracker tracker = new StatsTracker();
-        String partition = "P1";
         String exec = "EXEC";
 
-        tracker.keepRecord(partition, exec, 2, ActionType.INPUT);
-        tracker.keepRecord(partition, exec, 1, ActionType.OUTPUT);
-        tracker.keepRecord(partition, exec, 3, ActionType.BUFFER_INPUT);
-        tracker.keepRecord(partition, exec, 4, ActionType.BUFFER_OUTPUT);
+        tracker.keepRecord(exec, 2, ActionType.INPUT);
+        tracker.keepRecord(exec, 1, ActionType.OUTPUT);
+        tracker.keepRecord(exec, 3, ActionType.BUFFER_INPUT);
+        tracker.keepRecord(exec, 4, ActionType.BUFFER_OUTPUT);
 
-        InOutStorage info = tracker.getInOutInfo(partition);
+        InOutStorage info = tracker.getInOutInfo();
         assertEquals(Long.valueOf(2), info.getInputCount());
         assertEquals(Long.valueOf(1), info.getOutputCount());
         assertEquals(Long.valueOf(3), info.getBufferInputCount());
@@ -40,16 +42,15 @@ public class StatsTrackerTest {
         StoreInfo storeInfo = new StoreInfo(config);
         storeInfo.setStore(new MVStore.Builder().open());
         storeInfo.setStoreOpenTime(LocalDateTime.now());
-        PartitionManager pm = new PartitionManager(storeInfo);
-        DataAccess da = new DataAccess(storeInfo, pm);
+        QueueManager qm = new QueueManager(storeInfo);
+        DataAccess da = new DataAccess(storeInfo, qm);
 
-        String partition = "part";
         String exec = "exec";
-        da.write("tag", partition, exec, "data1");
-        FileQueueData data = da.read(partition, exec);
+        da.write("tag", exec, "data1");
+        FileQueueData data = da.read(exec);
         assertNotNull(data);
         assertEquals("data1", data.getData());
-        da.readCommit(partition, exec);
+        da.readCommit(exec);
 
         Files.deleteIfExists(dummyFile);
     }

@@ -1,6 +1,5 @@
 package com.queue.file.controller;
 
-import com.queue.file.utils.Contents;
 import com.queue.file.vo.*;
 import org.h2.mvstore.MVStore;
 import org.junit.Test;
@@ -9,11 +8,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 import static org.junit.Assert.*;
 
+/**
+ * v3.0.0: Updated for single queue (partition concept removed)
+ */
 public class BaseControllerTest {
 
     @Test
@@ -26,21 +26,24 @@ public class BaseControllerTest {
 
         BaseController controller = new BaseController(storeInfo);
 
+        // Write and read single data
         controller.write("data1");
         FileQueueData read = controller.read();
         assertNotNull(read);
         assertEquals("data1", read.getData());
         controller.readCommit(Thread.currentThread().getName());
 
-        Map<String, List<FileQueueData>> allData = controller.getAllDataList();
-        assertTrue(allData.get(Contents.DEFAULT_PARTITION).isEmpty());
+        // Check data is empty after commit
+        List<FileQueueData> dataList = controller.getDataList();
+        assertTrue(dataList.isEmpty());
 
-        controller.write("P1", "data2");
-        Set<String> names = controller.getAllPartitionNameSet();
-        assertTrue(names.contains("P1"));
+        // Write more data
+        controller.write("data2");
+        controller.write("data3");
 
-        Map<String, PartitionSummaryVo> summary = controller.getSummaryInfo();
-        assertEquals(1, summary.get("P1").getDataCount());
+        // Check summary
+        QueueSummaryVo summary = controller.getSummaryInfo();
+        assertEquals(2, summary.getDataCount());
 
         controller.close();
         assertTrue(storeInfo.getStore().isClosed());
