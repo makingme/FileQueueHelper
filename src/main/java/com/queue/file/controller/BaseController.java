@@ -8,7 +8,7 @@ import com.queue.file.utils.Contents;
 import com.queue.file.vo.FileQueueCustomConfigVo;
 import com.queue.file.vo.FileQueueData;
 import com.queue.file.vo.QueueContext;
-import com.queue.file.vo.PartitionSummaryVo;
+import com.queue.file.vo.QueueSummaryVo;
 import com.queue.file.vo.StoreInfo;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
@@ -25,13 +25,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class BaseController implements AutoCloseable{
     private static final Logger logger = LoggerFactory.getLogger(BaseController.class);
     private final StoreInfo storeInfo;
-    private final PartitionManager partitionManager;
+    private final QueueManager queueManager;
     private final DataAccess dataAccess;
 
     BaseController(StoreInfo storeInfo) {
         this.storeInfo = storeInfo;
-        this.partitionManager = new PartitionManager(storeInfo);
-        this.dataAccess = new DataAccess(storeInfo, partitionManager);
+        this.queueManager = new QueueManager(storeInfo);
+        this.dataAccess = new DataAccess(storeInfo, queueManager);
     }
 
     public StoreInfo getStoreInfo() { return storeInfo; }
@@ -39,37 +39,17 @@ public class BaseController implements AutoCloseable{
     public void write(String data) throws QueueWriteException {
         logger.debug("write data: {}", data);
         try {
-            dataAccess.write("", Contents.DEFAULT_PARTITION, Thread.currentThread().getName(), data);
+            dataAccess.write("", Thread.currentThread().getName(), data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);
         }
     }
 
-    public void write(String partition, String data) throws QueueWriteException {
-        logger.debug("write data: partition={}, data={}", partition, data);
+    public void write(String tag, String executorName, String data) throws QueueWriteException {
+        logger.debug("write data: tag={}, executor={}", tag, executorName);
         try {
-            dataAccess.write("", partition, Thread.currentThread().getName(), data);
-        }catch (QueueException e){
-            logger.error("Write failed", e);
-            throw new QueueWriteException(e);
-        }
-    }
-
-    public void write(String partition, String executorName, String data) throws QueueWriteException {
-        logger.debug("write data: partition={}, executor={}, data={}", partition, executorName, data);
-        try {
-            dataAccess.write("", partition, executorName, data);
-        }catch (QueueException e){
-            logger.error("Write failed", e);
-            throw new QueueWriteException(e);
-        }
-    }
-
-    public void write(String tag, String partition, String executorName, String data) throws QueueWriteException {
-        logger.debug("write data: tag={}, partition={}, executor={}", tag, partition, executorName);
-        try {
-            dataAccess.write(tag, partition, executorName, data);
+            dataAccess.write(tag, executorName, data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);
@@ -77,39 +57,19 @@ public class BaseController implements AutoCloseable{
     }
 
     public void writeBulk(List<String> dataList) throws QueueWriteException {
-        logger.debug("write bulk default partition size={}", dataList==null?0:dataList.size());
+        logger.debug("write bulk size={}", dataList==null?0:dataList.size());
         try {
-            dataAccess.writeBulk("", Contents.DEFAULT_PARTITION, Thread.currentThread().getName(), dataList);
+            dataAccess.writeBulk("", Thread.currentThread().getName(), dataList);
         }catch (QueueException e){
             logger.error("Bulk write failed", e);
             throw new QueueWriteException(e);
         }
     }
 
-    public void writeBulk(String partition, List<String> dataList) throws QueueWriteException {
-        logger.debug("write bulk: partition={}, size={}", partition, dataList==null?0:dataList.size());
+    public void writeBulk(String tag, String executorName, List<String> dataList) throws QueueWriteException {
+        logger.debug("write bulk: tag={}, executor={}, size={}", tag, executorName, dataList==null?0:dataList.size());
         try {
-            dataAccess.writeBulk("", partition, Thread.currentThread().getName(), dataList);
-        }catch (QueueException e){
-            logger.error("Bulk write failed", e);
-            throw new QueueWriteException(e);
-        }
-    }
-
-    public void writeBulk(String partition, String executorName, List<String> dataList) throws QueueWriteException {
-        logger.debug("write bulk: partition={}, executor={}, size={}", partition, executorName, dataList==null?0:dataList.size());
-        try {
-            dataAccess.writeBulk("", partition, executorName, dataList);
-        }catch (QueueException e){
-            logger.error("Bulk write failed", e);
-            throw new QueueWriteException(e);
-        }
-    }
-
-    public void writeBulk(String tag, String partition, String executorName, List<String> dataList) throws QueueWriteException {
-        logger.debug("write bulk: tag={}, partition={}, executor={}, size={}", tag, partition, executorName, dataList==null?0:dataList.size());
-        try {
-            dataAccess.writeBulk(tag, partition, executorName, dataList);
+            dataAccess.writeBulk(tag, executorName, dataList);
         }catch (QueueException e){
             logger.error("Bulk write failed", e);
             throw new QueueWriteException(e);
@@ -127,9 +87,9 @@ public class BaseController implements AutoCloseable{
     }
 
     public FileQueueData read() throws QueueReadException {
-        logger.debug("read default partition");
+        logger.debug("read");
         try {
-            return dataAccess.read(Contents.DEFAULT_PARTITION, Thread.currentThread().getName());
+            return dataAccess.read(Thread.currentThread().getName());
         }catch (QueueException e){
             logger.error("Read failed", e);
             throw new QueueReadException(e);
@@ -137,19 +97,9 @@ public class BaseController implements AutoCloseable{
     }
 
     public FileQueueData read(String executorName) throws QueueReadException {
-        logger.debug("read default partition executor={}", executorName);
+        logger.debug("read executor={}", executorName);
         try {
-            return dataAccess.read(Contents.DEFAULT_PARTITION, executorName);
-        }catch (QueueException e){
-            logger.error("Read failed", e);
-            throw new QueueReadException(e);
-        }
-    }
-
-    public FileQueueData read(String partitionName, String executorName) throws QueueReadException {
-        logger.debug("read partition={}, executor={}", partitionName, executorName);
-        try {
-            return dataAccess.read(partitionName, executorName);
+            return dataAccess.read(executorName);
         }catch (QueueException e){
             logger.error("Read failed", e);
             throw new QueueReadException(e);
@@ -159,17 +109,7 @@ public class BaseController implements AutoCloseable{
     public List<FileQueueData> read(String executorName, int requestCount) throws QueueReadException {
         logger.debug("read executor={} count={}", executorName, requestCount);
         try {
-            return dataAccess.read(Contents.DEFAULT_PARTITION, executorName, requestCount);
-        }catch (QueueException e){
-            logger.error("Read failed", e);
-            throw new QueueReadException(e);
-        }
-    }
-
-    public List<FileQueueData> read(String partitionName, String executorName, int requestCount) throws QueueReadException {
-        logger.debug("read partition={}, executor={}, count={}", partitionName, executorName, requestCount);
-        try {
-            return dataAccess.read(partitionName, executorName, requestCount);
+            return dataAccess.read(executorName, requestCount);
         }catch (QueueException e){
             logger.error("Read failed", e);
             throw new QueueReadException(e);
@@ -177,149 +117,101 @@ public class BaseController implements AutoCloseable{
     }
 
     public void readCommit(String executorName) throws QueueReadException {
-        logger.debug("readCommit executor={} default partition", executorName);
+        logger.debug("readCommit executor={}", executorName);
         try {
-            dataAccess.readCommit(Contents.DEFAULT_PARTITION, executorName);
+            dataAccess.readCommit(executorName);
         }catch (QueueException e){
             logger.error("ReadCommit failed", e);
             throw new QueueReadException(e);
         }
-    }
-
-    public void readCommit(String partitionName, String executorName) throws QueueReadException {
-        logger.debug("readCommit partition={}, executor={}", partitionName, executorName);
-        try {
-            dataAccess.readCommit(partitionName, executorName);
-        }catch (QueueException e){
-            logger.error("ReadCommit failed", e);
-            throw new QueueReadException(e);
-        }
-    }
-
-    public void checkAllState() throws UnsteadyStateException {
-        logger.debug("check all state");
-        partitionManager.checkAllState();
     }
 
     public void checkState() throws UnsteadyStateException {
-        logger.debug("check state default partition");
-        checkState(Contents.DEFAULT_PARTITION);
+        logger.debug("check state");
+        queueManager.checkState();
     }
 
-    public void checkState(String partitionName) throws UnsteadyStateException {
-        logger.debug("check state partition={}", partitionName);
-        partitionManager.checkState(partitionName, true);
-    }
-
-    // 전체 파티션 목록 정보 가져 오는 함수
-    public Set<String> getAllPartitionNameSet(){
-        return partitionManager.getPartitionContextMap().keySet();
-    }
-
-    // 요약 정보 가져오는 함수 - 파티션 별 - 영역 별 데이터 갯수
-    public Map<String, PartitionSummaryVo> getSummaryInfo() {
+    // 요약 정보 가져오는 함수 - 영역 별 데이터 갯수
+    public QueueSummaryVo getSummaryInfo() {
         return dataAccess.getSummaryInfo();
     }
 
-    // 모든 파티션의 전체 데이터 정보 가져 오는 함수
-    public Map<String, List<FileQueueData>> getAllDataList() {
-        return dataAccess.getAllDataList();
+    // 전체 데이터 정보 가져 오는 함수
+    public List<FileQueueData> getDataList() {
+        return dataAccess.getDataList();
     }
 
-    // 특정 파티션 데이터 목록 가져 오는 함수
-    public List<FileQueueData> getPartitionDataList(String partitionName) {
-        return dataAccess.getPartitionDataList(partitionName);
+    // 특정 데이터 정보 가져 오는 함수
+    public FileQueueData getData(Long transactionKey) {
+        return dataAccess.getData(transactionKey);
     }
 
-    // 특정 파티션의 특정 데이터 정보 가져 오는 함수
-    public FileQueueData getData(String partitionName, Long transactionKey) {
-        return dataAccess.getData(partitionName, transactionKey);
+    // 버퍼 목록 가져 오는 함수
+    public Map<String, List<FileQueueData>> getBufferList() {
+        return dataAccess.getBufferList();
     }
 
-    // 특정 파티션 버퍼 목록 가져 오는 함수
-    public Map<String, List<FileQueueData>> getPartitionBufferList(String partitionName) {
-        return dataAccess.getPartitionBufferList(partitionName);
+    // 특정 버퍼 정보 가져오는 함수
+    public List<FileQueueData> getBuffer(String executorName) {
+        return dataAccess.getBuffer(executorName);
     }
 
-    // 특정 파티션의 특정 버퍼 정보 가져오는 함수
-    public List<FileQueueData> getBuffer(String partitionName, String executorName) {
-        return dataAccess.getBuffer(partitionName, executorName);
+    // 캐시 목록 가져 오는 함수
+    public Map<String, Object> getCacheList() {
+        return dataAccess.getCacheList();
     }
 
-    // 특정 파티션 캐시 목록 가져 오는 함수
-    public Map<String, Object> getPartitionCacheList(String partitionName) {
-        return dataAccess.getPartitionCacheList(partitionName);
+    // 특정 캐시 정보 가져오는 함수
+    public Object getCache(String cacheKey) {
+        return dataAccess.getCache(cacheKey);
     }
 
-    // 특정 파티션의 특정 캐시 정보 가져오는 함수
-    public Object getCache(String partitionName, String cacheKey) {
-        return dataAccess.getCache(partitionName, cacheKey);
+    // 전체 데이터 정보 삭제 함수
+    public void clearData() {
+        logger.debug("clear data");
+        dataAccess.clearData();
     }
 
-    // 모든 파티션의 전체 데이터 정보 삭제 함수
-    public void clearAllData() {
-        logger.debug("clear all data");
-        dataAccess.clearAllData();
+    // 특정 데이터 정보 삭제 함수
+    public void removeData(Long transactionKey) {
+        dataAccess.removeData(transactionKey);
     }
 
-    // 특정 파티션의 전체 데이터 정보 삭제 함수
-    public void clearData(String partitionName) {
-        logger.debug("clear data partition={}", partitionName);
-        dataAccess.clearData(partitionName);
+    // 모든 버퍼 정보 삭제 함수
+    public void clearBuffer() {
+        logger.debug("clear buffer");
+        dataAccess.clearBuffer();
     }
 
-    // 특정 파티션의 특정 데이터 정보 삭제 함수
-    public void removeData(String partitionName, Long transactionKey) {
-        dataAccess.removeData(partitionName, transactionKey);
+    // 특정 버퍼 정보 삭제 함수
+    public void clearBuffer(String executorName) {
+        logger.debug("clear buffer executor={}", executorName);
+        dataAccess.clearBuffer(executorName);
     }
 
-    // 모든 파티션의 모든 버퍼 정보 삭제 함수
-    public void clearAllBuffer() {
-        logger.debug("clear all buffer");
-        dataAccess.clearAllBuffer();
+    // 모든 캐시 정보 삭제 함수
+    public void clearCache() {
+        logger.debug("clear cache");
+        dataAccess.clearCache();
     }
 
-    // 특정 파티션의 모든 버퍼 정보 삭제 함수
-    public void clearBuffer(String partitionName) {
-        logger.debug("clear buffer partition={}", partitionName);
-        dataAccess.clearBuffer(partitionName);
+    // 특정 캐시 정보 삭제 함수
+    public void clearCache(String cacheKey) {
+        logger.debug("clear cache key={}", cacheKey);
+        dataAccess.clearCache(cacheKey);
     }
 
-    // 특정 파티션의 특정 버퍼 정보 삭제 함수
-    public void clearBuffer(String partitionName, String executorName) {
-        logger.debug("clear buffer partition={} executor={}", partitionName, executorName);
-        dataAccess.clearBuffer(partitionName, executorName);
-    }
-
-    // 모든 파티션의 모든 캐시 정보 삭제 함수
-    public void clearAllCache() {
-        logger.debug("clear all cache");
-        dataAccess.clearAllCache();
-    }
-
-    // 특정 파티션의 모든 캐시 정보 삭제 함수
-    public void clearCache(String partitionName) {
-        logger.debug("clear cache partition={}", partitionName);
-        dataAccess.clearCache(partitionName);
-    }
-
-    // 특정 파티션의 특정 캐시 정보 삭제 함수
-    public void clearCache(String partitionName, String cacheKey) {
-        logger.debug("clear cache partition={} key={}", partitionName, cacheKey);
-        dataAccess.clearCache(partitionName, cacheKey);
-    }
-
-    // 지정 파티션 데이터 또는 버퍼에서 한 건 삭제
-    public void removeOne(String partitionName, String executorName) {
-        logger.debug("remove one partition={} executor={}", partitionName, executorName);
-        dataAccess.removeOne(partitionName, executorName);
+    // 데이터 또는 버퍼에서 한 건 삭제
+    public void removeOne(String executorName) {
+        logger.debug("remove one executor={}", executorName);
+        dataAccess.removeOne(executorName);
     }
 
     @Override
     public void close() {
         logger.info("AutoCloseable#close: Graceful shutdown start");
 
-        QueueContext ctx = partitionManager.getQueueContext();
+        QueueContext ctx = queueManager.getQueueContext();
         ReentrantReadWriteLock.WriteLock wl = ctx.getLock().writeLock();
 
         boolean locked = false;

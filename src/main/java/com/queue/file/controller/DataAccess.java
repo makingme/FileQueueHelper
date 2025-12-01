@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 /**
  * @since : 2025-07-16(수)
@@ -19,29 +18,29 @@ public class DataAccess {
     private static final Logger logger = LoggerFactory.getLogger(DataAccess.class);
     private final StatsTracker statsTracker = new StatsTracker();
     private final StoreInfo storeInfo;
-    private final PartitionManager partitionManager;
+    private final QueueManager queueManager;
 
-    public DataAccess(StoreInfo storeInfo, PartitionManager partitionManager) {
+    public DataAccess(StoreInfo storeInfo, QueueManager queueManager) {
         this.storeInfo = storeInfo;
-        this.partitionManager = partitionManager;
+        this.queueManager = queueManager;
     }
 
-    public void write(String tag, String partition, String executorName, String data) throws QueueException {
+    public void write(String tag, String executorName, String data) throws QueueException {
         if (data == null || data.isEmpty()) {
             return;
         }
-        logger.debug("write tag={} partition={} executor={}", tag, partition, executorName);
-        writeQueueData(executorName, Collections.singletonList(new FileQueueData(partition, tag, data)));
+        logger.debug("write tag={} executor={}", tag, executorName);
+        writeQueueData(executorName, Collections.singletonList(new FileQueueData(tag, data)));
     }
 
-    public void writeBulk(String tag, String partition, String executorName, List<String> dataList) throws QueueException {
+    public void writeBulk(String tag, String executorName, List<String> dataList) throws QueueException {
         if (dataList ==null || dataList.isEmpty()) {
             return;
         }
-        logger.debug("writeBulk tag={} partition={} executor={} size={}", tag, partition, executorName, dataList.size());
+        logger.debug("writeBulk tag={} executor={} size={}", tag, executorName, dataList.size());
         List<FileQueueData> storeDataList = new ArrayList<>(dataList.size());
         for (String data : dataList) {
-            storeDataList.add(new FileQueueData(partition, tag, data));
+            storeDataList.add(new FileQueueData(tag, data));
         }
         writeQueueData(executorName, storeDataList);
     }
@@ -49,71 +48,56 @@ public class DataAccess {
     public void writeQueueData(String executorName, List<FileQueueData> storeDataList) throws QueueException {
         // store 상태 체크
         try{
-            partitionManager.checkStore();
+            queueManager.checkStore();
         }catch (UnsteadyStateException e) {
             throw new QueueException(e);
         }
 
         logger.debug("writeQueueData executor={} size={}", executorName, storeDataList==null?0:storeDataList.size());
-        
+
         if (storeDataList==null || storeDataList.isEmpty()) {
             return;
         }
 
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
         FileQueueCustomConfigVo customConfigVo = configVo.getCustomConfig();
-        Map<String, List<FileQueueData>> groupedByPartition = storeDataList.stream()
-                .collect(Collectors.groupingBy(FileQueueData::getPartition));
 
-        // 입력 파티션에 일제 쓰기락 획득
-        List<String> acquiredPartitions = acquireAllPartitionLocks(groupedByPartition.keySet());
+        QueueContext ctx = queueManager.getQueueContext();
+        ReentrantReadWriteLock.WriteLock writeLock = ctx.getLock().writeLock();
+
+        writeLock.lock();
         boolean needsRollback = false;
         try {
-            for (Map.Entry<String, List<FileQueueData>> entry : groupedByPartition.entrySet()) {
-                String partitionName = entry.getKey();
-                List<FileQueueData> partitionDataList = entry.getValue();
-                processPartitionData(partitionName, partitionDataList, executorName);
+            long groupKey = ctx.getIndexVo().getGroupIndex();
+            ConcurrentSkipListSet<Long> dataKeyList = ctx.getTransactionKeyList();
+            MVMap<Long, FileQueueData> dataMap = ctx.getDataMap();
+
+            if (dataMap == null || dataMap.isClosed()) {
+                throw new QueueWriteException("데이터 객체가 비정상적인 상태");
+            }
+
+            for (FileQueueData queueData : storeDataList) {
+                long innerKey = ctx.getIndexVo().getTransactionIndex();
+                queueData.setTransactionKey(innerKey);
+                queueData.setGroupTransactionKey(groupKey);
+                dataMap.put(innerKey, queueData);
+                dataKeyList.add(innerKey);
             }
 
             int totalDataCount = storeDataList.size();
             boolean isBulk = totalDataCount >= customConfigVo.getBulkSize();
-            boolean useSeparateFiles = customConfigVo != null && customConfigVo.isUseSeparatePartitionFiles();
 
             if (isBulk && customConfigVo.isBulkCommit()) {
-                if (useSeparateFiles) {
-                    // 파티션별 독립 파일: 각 파티션 Store에 commit
-                    for (String partitionName : groupedByPartition.keySet()) {
-                        MVStore partitionStore = storeInfo.getPartitionStore(partitionName);
-                        if (partitionStore != null && !partitionStore.isClosed()) {
-                            partitionStore.commit();
-                        }
-                    }
-                } else {
-                    // Legacy 모드: 단일 Store commit
-                    storeInfo.getStore().commit();
-                }
+                storeInfo.getStore().commit();
                 needsRollback = true;
             }
 
+            statsTracker.keepRecord(executorName, storeDataList.size(), ActionType.INPUT);
+
         }catch (Exception e) {
             if (needsRollback) {
-                boolean useSeparateFiles = customConfigVo != null && customConfigVo.isUseSeparatePartitionFiles();
                 try {
-                    if (useSeparateFiles) {
-                        // 파티션별 rollback
-                        for (String partitionName : groupedByPartition.keySet()) {
-                            MVStore partitionStore = storeInfo.getPartitionStore(partitionName);
-                            if (partitionStore != null && !partitionStore.isClosed()) {
-                                try {
-                                    partitionStore.rollback();
-                                } catch (Exception e2) {
-                                    e.addSuppressed(e2);
-                                }
-                            }
-                        }
-                    } else {
-                        storeInfo.getStore().rollback();
-                    }
+                    storeInfo.getStore().rollback();
                 }catch (Exception e1) {
                     e.addSuppressed(e1);
                 }
@@ -121,185 +105,94 @@ public class DataAccess {
             logger.error("writeQueueData failed", e);
             throw new QueueWriteException("큐 입력 중 예외 발생 = 큐:[" + configVo.getQueueName() + "]", e);
         }finally {
-            // 모든 락 해제 (역순)
-            releaseAllLocks(acquiredPartitions);
+            writeLock.unlock();
         }
     }
 
-    private List<String> acquireAllPartitionLocks(Set<String> partitionNames) throws QueueException {
-        List<String> sortedPartitions = new ArrayList<>(partitionNames);
-        // 일관된 락 순서
-        Collections.sort(sortedPartitions);
-        logger.debug("acquire locks for partitions={}", sortedPartitions);
-        try {
-            for (String partitionName : sortedPartitions) {
-                PartitionContext partitionContext;
-                try {
-                    partitionContext = partitionManager.getPartitionContext(partitionName);
-                } catch (InitializeException e) {
-                    throw new QueueException("신규 파티션 입력 - 파일 쓰기 중 "+partitionName + " 파티션 Context 생성 중 예외 발생", e);
-                }
-
-                ReentrantReadWriteLock lock = partitionContext.getLock();
-                lock.writeLock().lock();
-            }
-            return sortedPartitions;
-
-        } catch (Exception e) {
-            // 획득한 락들을 역순으로 해제
-            releaseAllLocks(sortedPartitions);
-            logger.error("acquireAllPartitionLocks failed", e);
-            throw new QueueException(e);
-        }
-    }
-
-    private void processPartitionData(String partitionName, List<FileQueueData> partitionDataList, String executorName) throws QueueException {
-        PartitionContext partitionContext = null;
-        logger.debug("process partition data partition={} executor={} size={}", partitionName, executorName, partitionDataList==null?0:partitionDataList.size());
-        try{
-            partitionContext = partitionManager.getPartitionContext(partitionName);
-        }catch (InitializeException e){
-            throw new QueueWriteException(partitionName + " 신규 파티션 Context 생성 중 예외 발생", e);
-        }
-        try {
-            long groupKey = partitionContext.getGroupKey();
-            ConcurrentSkipListSet<Long> dataKeyList = partitionContext.getTransactionKeyList();
-            MVMap<Long, FileQueueData> dataMap = partitionContext.getDataMap();
-            if (dataMap == null || dataMap.isClosed()) {
-                throw new QueueWriteException(partitionContext.getPartitionName() + " 파티션 데이터 객체가 비정상적인 상태");
-            }
-            for (FileQueueData queueData : partitionDataList) {
-                long innerKey = partitionContext.getTransactionKey();
-                queueData.setTransactionKey(innerKey);
-                queueData.setGroupTransactionKey(groupKey);
-                dataMap.put(innerKey, queueData);
-                dataKeyList.add(innerKey);
-            }
-            statsTracker.keepRecord(partitionName, executorName, partitionDataList.size(), ActionType.INPUT);
-        }catch (Exception e){
-            logger.error("processPartitionData failed partition={}", partitionContext.getPartitionName(), e);
-            throw new QueueWriteException(
-                    "파티션 데이터 처리 중 예외 발생 - 파티션: " + partitionContext.getPartitionName(), e);
-        }
-
-    }
-
-    private void releaseAllLocks(List<String> acquiredLockPartitions) {
-        // 역순으로 락 해제
-        logger.debug("release locks for partitions={}", acquiredLockPartitions);
-        for (int i = acquiredLockPartitions.size() - 1; i >= 0; i--) {
-            PartitionContext partitionContext;
-            try {
-                partitionContext = partitionManager.getPartitionContext(acquiredLockPartitions.get(i));
-            } catch (InitializeException e) {
-                continue;
-            }
-            try {
-                partitionContext.getLock().writeLock().unlock();
-            } catch (Exception e) {
-                logger.warn("락 해제 중 예외 발생: {}", e.getMessage());
-            }
-        }
-    }
-
-    public FileQueueData read(String partitionName, String executorName) throws QueueException {
-        logger.debug("read single partition={} executor={}", partitionName, executorName);
-        List<FileQueueData> fileQueueDataList = read(partitionName, executorName, 1);
+    public FileQueueData read(String executorName) throws QueueException {
+        logger.debug("read single executor={}", executorName);
+        List<FileQueueData> fileQueueDataList = read(executorName, 1);
         return (fileQueueDataList == null || fileQueueDataList.isEmpty()) ? null : fileQueueDataList.get(0);
     }
 
-    public List<FileQueueData> read(String partitionName, String executorName, int requestCount) throws QueueException {
-        logger.debug("read partition={} executor={} count={}", partitionName, executorName, requestCount);
+    public List<FileQueueData> read(String executorName, int requestCount) throws QueueException {
+        logger.debug("read executor={} count={}", executorName, requestCount);
         if (storeInfo.getStoreOpenTime() == null) {
             throw new QueueReadException("open 되지 않음 - open() 호출 필요");
         }
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
         FileQueueCustomConfigVo customConfigVo = configVo.getCustomConfig();
-        statsTracker.keepRecord(partitionName, executorName, ActionType.OUTPUT_INVOKE);
-        boolean isCommited = false;
+        statsTracker.keepRecord(executorName, ActionType.OUTPUT_INVOKE);
+
+        // Stable 모드: 버퍼 확인
         if (customConfigVo.isStableMode()) {
-            List<FileQueueData> bufferDataList = readBuffer(partitionName, executorName);
+            List<FileQueueData> bufferDataList = readBuffer(executorName);
             if (bufferDataList != null && !bufferDataList.isEmpty()) {
                 return bufferDataList;
             }
         }
-        PartitionContext partitionContext = partitionManager.getPartitionContextMap().get(partitionName);
-        if (partitionContext == null) {
-            return null;
-        }
-        ReentrantReadWriteLock lock = partitionContext.getLock();
-        ConcurrentSkipListSet<Long> dataKeyList = partitionContext.getTransactionKeyList();
-        MVMap<Long, FileQueueData> dataMap = partitionContext.getDataMap();
+
+        QueueContext ctx = queueManager.getQueueContext();
+        MVMap<Long, FileQueueData> dataMap = ctx.getDataMap();
         if (dataMap == null || dataMap.isClosed()) {
-            throw new QueueReadException(partitionName + "파티션 데이터 영역이 비정상적인 상태");
+            throw new QueueReadException("데이터 영역이 비정상적인 상태");
         }
 
-        lock.readLock().lock();
-        try{
-            if (dataMap.isEmpty()) {
-                return null;
-            }
-        }finally {
-            lock.readLock().unlock();
-        }
-
-        lock.writeLock().lock();
+        ReentrantReadWriteLock.WriteLock writeLock = ctx.getLock().writeLock();
+        writeLock.lock();
+        boolean isCommitted = false;
         try {
             int selectCount = Math.min(requestCount, dataMap.size());
             if(selectCount < 1){
                 return null;
             }
+
             boolean isBulk = selectCount >= customConfigVo.getBulkSize();
-            List<FileQueueData> queueDataList = extractData(partitionName, dataKeyList, dataMap, selectCount);
+            List<FileQueueData> queueDataList = extractData(ctx, selectCount);
+
             if (customConfigVo.isStableMode()) {
-                MVMap<String, List<FileQueueData>> readBufferMap = partitionContext.getReadBufferMap();
+                MVMap<String, List<FileQueueData>> readBufferMap = ctx.getReadBufferMap();
                 if (readBufferMap != null && !readBufferMap.isClosed()) {
                     readBufferMap.put(executorName, queueDataList);
-                    statsTracker.keepRecord(partitionName, executorName, ActionType.BUFFER_INPUT);
+                    statsTracker.keepRecord(executorName, ActionType.BUFFER_INPUT);
                 }
             }
+
             if (isBulk && customConfigVo.isBulkCommit()) {
-                boolean useSeparateFiles = customConfigVo.isUseSeparatePartitionFiles();
-                if (useSeparateFiles) {
-                    MVStore partitionStore = storeInfo.getPartitionStore(partitionName);
-                    if (partitionStore != null && !partitionStore.isClosed()) {
-                        partitionStore.commit();
-                    }
-                } else {
-                    storeInfo.getStore().commit();
-                }
-                isCommited = true;
+                storeInfo.getStore().commit();
+                isCommitted = true;
             }
-            statsTracker.keepRecord(partitionName, executorName, queueDataList.size(), ActionType.OUTPUT);
+
+            statsTracker.keepRecord(executorName, queueDataList.size(), ActionType.OUTPUT);
             return queueDataList;
+
         } catch (QueueReadException e) {
             logger.error("read failed: {}", e.getMessage());
             throw new QueueReadException("큐:[" + configVo.getQueueName() + "] " + e.getMessage(), e);
         } catch (Exception e) {
-            if (isCommited) {
-                boolean useSeparateFiles = customConfigVo.isUseSeparatePartitionFiles();
-                if (useSeparateFiles) {
-                    MVStore partitionStore = storeInfo.getPartitionStore(partitionName);
-                    if (partitionStore != null && !partitionStore.isClosed()) {
-                        partitionStore.rollback();
-                    }
-                } else {
+            if (isCommitted) {
+                try {
                     storeInfo.getStore().rollback();
+                } catch (Exception e1) {
+                    e.addSuppressed(e1);
                 }
             }
             logger.error("read failed", e);
             throw new QueueReadException("<읽기 : 실패> = 큐:[" + configVo.getQueueName() + "]", e);
         }finally {
-            lock.writeLock().unlock();
+            writeLock.unlock();
         }
     }
 
-    private List<FileQueueData> extractData(String partitionName, ConcurrentSkipListSet<Long> dataKeyList, MVMap<Long, FileQueueData> dataMap, int selectCount) throws QueueException {
-        logger.debug("extractData partition={} count={}", partitionName, selectCount);
+    private List<FileQueueData> extractData(QueueContext ctx, int selectCount) throws QueueException {
+        logger.debug("extractData count={}", selectCount);
         List<FileQueueData> queueDataList = new ArrayList<>(selectCount);
         try {
+            queueManager.realignDataKey();
 
-            partitionManager.realignDataKey(partitionName);
+            ConcurrentSkipListSet<Long> dataKeyList = ctx.getTransactionKeyList();
+            MVMap<Long, FileQueueData> dataMap = ctx.getDataMap();
+
             for (int i = 1; i <= selectCount; i++) {
                 Long transKey = dataKeyList.pollFirst();
                 if (transKey == null) {
@@ -313,60 +206,56 @@ public class DataAccess {
             }
             return queueDataList;
         } catch (Exception e) {
-            logger.error("extractData failed partition={}", partitionName, e);
-            throw new QueueReadException("데이터 추출 중 예외 발생 = 파티션:" + partitionName, e);
+            logger.error("extractData failed", e);
+            throw new QueueReadException("데이터 추출 중 예외 발생", e);
         }
     }
 
-    private List<FileQueueData> readBuffer(String partitionName, String executorName) throws QueueException {
-        statsTracker.keepRecord(partitionName, executorName, ActionType.BUFFER_OUTPUT_INVOKE);
-        logger.debug("readBuffer partition={} executor={}", partitionName, executorName);
-        List<FileQueueData> queueDataList = null;
-        PartitionContext partitionContext = partitionManager.getPartitionContextMap().get(partitionName);
-        if (partitionContext == null) {
-            return null;
-        }
-        MVMap<String, List<FileQueueData>> readBufferMap = partitionContext.getReadBufferMap();
+    private List<FileQueueData> readBuffer(String executorName) throws QueueException {
+        statsTracker.keepRecord(executorName, ActionType.BUFFER_OUTPUT_INVOKE);
+        logger.debug("readBuffer executor={}", executorName);
+
+        QueueContext ctx = queueManager.getQueueContext();
+        MVMap<String, List<FileQueueData>> readBufferMap = ctx.getReadBufferMap();
         if (readBufferMap == null || readBufferMap.isClosed()) {
            return null;
         }
-        ReentrantReadWriteLock lock = partitionContext.getLock();
-        lock.readLock().lock();
+
+        ReentrantReadWriteLock.ReadLock readLock = ctx.getLock().readLock();
+        readLock.lock();
         try {
-            queueDataList = readBufferMap.get(executorName);
+            List<FileQueueData> queueDataList = readBufferMap.get(executorName);
             return queueDataList;
         } catch (Exception e) {
-            logger.error("readBuffer failed partition={} executor={}", partitionName, executorName, e);
-            throw new QueueReadException(partitionName + "파티션의 " + executorName + "버퍼 영역 데이터 파싱 중 예외 발생 - 원본 데이터 정보:" + queueDataList, e);
+            logger.error("readBuffer failed executor={}", executorName, e);
+            throw new QueueReadException(executorName + "버퍼 영역 데이터 파싱 중 예외 발생", e);
         } finally {
-            lock.readLock().unlock();
+            readLock.unlock();
         }
     }
 
-    public void readCommit(String partitionName, String executorName) throws QueueException {
+    public void readCommit(String executorName) throws QueueException {
         if (storeInfo.getStoreOpenTime() == null) {
             throw new QueueReadException("open 되지 않음 - open() 호출 필요");
         }
-        PartitionContext partitionContext = partitionManager.getPartitionContextMap().get(partitionName);
-        if (partitionContext == null) {
-            return;
-        }
-        MVMap<String, List<FileQueueData>> readBufferMap = partitionContext.getReadBufferMap();
+
+        QueueContext ctx = queueManager.getQueueContext();
+        MVMap<String, List<FileQueueData>> readBufferMap = ctx.getReadBufferMap();
         if (readBufferMap == null || readBufferMap.isClosed()) {
             return;
         }
 
-        ReentrantReadWriteLock lock = partitionContext.getLock();
-        lock.writeLock().lock();
+        ReentrantReadWriteLock.WriteLock writeLock = ctx.getLock().writeLock();
+        writeLock.lock();
         try {
-            logger.debug("readCommit partition={} executor={}", partitionName, executorName);
+            logger.debug("readCommit executor={}", executorName);
             readBufferMap.remove(executorName);
-            statsTracker.keepRecord(partitionName, executorName, ActionType.BUFFER_OUTPUT);
+            statsTracker.keepRecord(executorName, ActionType.BUFFER_OUTPUT);
         } catch (Exception e) {
             logger.error("readCommit failed", e);
-            throw new QueueReadException("[" + storeInfo.getCONFIG().getQueueName() + "] 큐, 버퍼 COMMIT 실패 - 파티션:" + partitionName, e);
+            throw new QueueReadException("[" + storeInfo.getCONFIG().getQueueName() + "] 큐, 버퍼 COMMIT 실패", e);
         } finally {
-            lock.writeLock().unlock();
+            writeLock.unlock();
         }
     }
 
@@ -374,31 +263,23 @@ public class DataAccess {
      *  Management helper methods used by BaseController
      * *****************************************************************/
 
-    /** 요약 정보 가져오는 함수 - 파티션 별 - 영역 별 데이터 갯수 */
-    public Map<String, PartitionSummaryVo> getSummaryInfo() {
-        Map<String, PartitionSummaryVo> result = new HashMap<>();
-        for (Map.Entry<String, PartitionContext> entry : partitionManager.getPartitionContextMap().entrySet()) {
-            String partitionName = entry.getKey();
-            PartitionContext ctx = entry.getValue();
-            ctx.getLock().readLock().lock();
-            try {
-                int dataCnt = ctx.getDataMap() == null ? 0 : ctx.getDataMap().size();
-                int bufferCnt = ctx.getReadBufferMap() == null ? 0 : ctx.getReadBufferMap().size();
-                int cacheCnt = ctx.getCacheMap() == null ? 0 : ctx.getCacheMap().size();
-                result.put(partitionName, new PartitionSummaryVo(partitionName, dataCnt, bufferCnt, cacheCnt));
-            } finally {
-                ctx.getLock().readLock().unlock();
-            }
+    /** 요약 정보 가져오는 함수 - 영역 별 데이터 갯수 */
+    public QueueSummaryVo getSummaryInfo() {
+        QueueContext ctx = queueManager.getQueueContext();
+        ctx.getLock().readLock().lock();
+        try {
+            int dataCnt = ctx.getDataMap() == null ? 0 : ctx.getDataMap().size();
+            int bufferCnt = ctx.getReadBufferMap() == null ? 0 : ctx.getReadBufferMap().size();
+            int cacheCnt = ctx.getCacheMap() == null ? 0 : ctx.getCacheMap().size();
+            return new QueueSummaryVo(dataCnt, bufferCnt, cacheCnt);
+        } finally {
+            ctx.getLock().readLock().unlock();
         }
-        return result;
     }
 
-    /** 특정 파티션 데이터 목록 가져 오는 함수 */
-    public List<FileQueueData> getPartitionDataList(String partitionName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return Collections.emptyList();
-        }
+    /** 데이터 목록 가져 오는 함수 */
+    public List<FileQueueData> getDataList() {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().readLock().lock();
         try {
             if (ctx.getDataMap() == null) {
@@ -410,12 +291,9 @@ public class DataAccess {
         }
     }
 
-    /** 특정 파티션 버퍼 목록 가져 오는 함수 */
-    public Map<String, List<FileQueueData>> getPartitionBufferList(String partitionName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return Collections.emptyMap();
-        }
+    /** 버퍼 목록 가져 오는 함수 */
+    public Map<String, List<FileQueueData>> getBufferList() {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().readLock().lock();
         try {
             if (ctx.getReadBufferMap() == null) {
@@ -427,12 +305,9 @@ public class DataAccess {
         }
     }
 
-    /** 특정 파티션 캐시 목록 가져 오는 함수 */
-    public Map<String, Object> getPartitionCacheList(String partitionName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return Collections.emptyMap();
-        }
+    /** 캐시 목록 가져 오는 함수 */
+    public Map<String, Object> getCacheList() {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().readLock().lock();
         try {
             if (ctx.getCacheMap() == null) {
@@ -444,22 +319,9 @@ public class DataAccess {
         }
     }
 
-
-    /** 모든 파티션의 전체 데이터 정보 가져 오는 함수 */
-    public Map<String, List<FileQueueData>> getAllDataList() {
-        Map<String, List<FileQueueData>> result = new HashMap<>();
-        for (String p : partitionManager.getPartitionContextMap().keySet()) {
-            result.put(p, getPartitionDataList(p));
-        }
-        return result;
-    }
-
-    /** 특정 파티션의 특정 데이터 정보 가져 오는 함수 */
-    public FileQueueData getData(String partitionName, Long transactionKey) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return null;
-        }
+    /** 특정 데이터 정보 가져 오는 함수 */
+    public FileQueueData getData(Long transactionKey) {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().readLock().lock();
         try {
             return ctx.getDataMap() == null ? null : ctx.getDataMap().get(transactionKey);
@@ -468,19 +330,9 @@ public class DataAccess {
         }
     }
 
-    /** 모든 파티션의 전체 데이터 정보 삭제 함수 */
-    public void clearAllData() {
-        for (String p : partitionManager.getPartitionContextMap().keySet()) {
-            clearData(p);
-        }
-    }
-
-    /** 특정 파티션의 전체 데이터 정보 삭제 함수 */
-    public void clearData(String partitionName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return;
-        }
+    /** 전체 데이터 정보 삭제 함수 */
+    public void clearData() {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             if (ctx.getDataMap() != null) {
@@ -494,12 +346,9 @@ public class DataAccess {
         }
     }
 
-    /** 특정 파티션의 특정 데이터 정보 삭제 함수 */
-    public void removeData(String partitionName, Long transactionKey) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return;
-        }
+    /** 특정 데이터 정보 삭제 함수 */
+    public void removeData(Long transactionKey) {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             if (ctx.getDataMap() != null) {
@@ -513,12 +362,9 @@ public class DataAccess {
         }
     }
 
-    /** 특정 파티션의 특정 버퍼 정보 가져오는 함수 */
-    public List<FileQueueData> getBuffer(String partitionName, String executorName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return Collections.emptyList();
-        }
+    /** 특정 버퍼 정보 가져오는 함수 */
+    public List<FileQueueData> getBuffer(String executorName) {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().readLock().lock();
         try {
             Map<String, List<FileQueueData>> map = ctx.getReadBufferMap();
@@ -532,19 +378,9 @@ public class DataAccess {
         }
     }
 
-    /** 모든 파티션의 모든 버퍼 정보 삭제 함수 */
-    public void clearAllBuffer() {
-        for (String p : partitionManager.getPartitionContextMap().keySet()) {
-            clearBuffer(p);
-        }
-    }
-
-    /** 특정 파티션의 모든 버퍼 정보 삭제 함수 */
-    public void clearBuffer(String partitionName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return;
-        }
+    /** 모든 버퍼 정보 삭제 함수 */
+    public void clearBuffer() {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             if (ctx.getReadBufferMap() != null) {
@@ -555,12 +391,9 @@ public class DataAccess {
         }
     }
 
-    /** 특정 파티션의 특정 버퍼 정보 삭제 함수 */
-    public void clearBuffer(String partitionName, String executorName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return;
-        }
+    /** 특정 버퍼 정보 삭제 함수 */
+    public void clearBuffer(String executorName) {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             if (ctx.getReadBufferMap() != null) {
@@ -571,12 +404,9 @@ public class DataAccess {
         }
     }
 
-    /** 특정 파티션의 특정 캐시 정보 가져오는 함수 */
-    public Object getCache(String partitionName, String cacheKey) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return null;
-        }
+    /** 특정 캐시 정보 가져오는 함수 */
+    public Object getCache(String cacheKey) {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().readLock().lock();
         try {
             return ctx.getCacheMap() == null ? null : ctx.getCacheMap().get(cacheKey);
@@ -585,19 +415,9 @@ public class DataAccess {
         }
     }
 
-    /** 모든 파티션의 모든 캐시 정보 삭제 함수 */
-    public void clearAllCache() {
-        for (String p : partitionManager.getPartitionContextMap().keySet()) {
-            clearCache(p);
-        }
-    }
-
-    /** 특정 파티션의 모든 캐시 정보 삭제 함수 */
-    public void clearCache(String partitionName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return;
-        }
+    /** 모든 캐시 정보 삭제 함수 */
+    public void clearCache() {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             if (ctx.getCacheMap() != null) {
@@ -608,12 +428,9 @@ public class DataAccess {
         }
     }
 
-    /** 특정 파티션의 특정 캐시 정보 삭제 함수 */
-    public void clearCache(String partitionName, String cacheKey) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return;
-        }
+    /** 특정 캐시 정보 삭제 함수 */
+    public void clearCache(String cacheKey) {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             if (ctx.getCacheMap() != null) {
@@ -624,12 +441,9 @@ public class DataAccess {
         }
     }
 
-    /** 지정 파티션에서 버퍼 또는 데이터 한 건 제거 */
-    public void removeOne(String partitionName, String executorName) {
-        PartitionContext ctx = partitionManager.getPartitionContextMap().get(partitionName);
-        if (ctx == null) {
-            return;
-        }
+    /** 버퍼 또는 데이터 한 건 제거 */
+    public void removeOne(String executorName) {
+        QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             MVMap<String, List<FileQueueData>> bufferMap = ctx.getReadBufferMap();
@@ -644,14 +458,13 @@ public class DataAccess {
             }
 
             ConcurrentSkipListSet<Long> keyList = ctx.getTransactionKeyList();
-            Long firstKey = null;
             if (keyList != null) {
                 try {
-                    partitionManager.realignDataKey(partitionName);
+                    queueManager.realignDataKey();
                 } catch (UnsteadyStateException ignore) {
                     // ignore and continue
                 }
-                firstKey = keyList.pollFirst();
+                Long firstKey = keyList.pollFirst();
                 if (firstKey != null) {
                     dataMap.remove(firstKey);
                     keyList.remove(firstKey);
