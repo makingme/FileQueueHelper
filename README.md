@@ -13,11 +13,11 @@
 
 ## 버전
 
-- **Latest**: v3.0.0 (단일 큐 방식)
-- **Previous**: v2.x (멀티 파티션 방식)
+- **Latest**: v2.1.0 (단일 큐 방식)
+- **Previous**: v2.0.0 (멀티 파티션 방식)
 
-> ⚠️ v3.0.0은 파티션 개념을 완전히 제거한 Breaking Change 버전입니다.
-> v2.x에서 마이그레이션하시려면 [v3.0.0 마이그레이션 가이드](v3.0.0-MIGRATION.md)를 참조하세요.
+> ⚠️ v2.1.0은 파티션 개념을 완전히 제거한 Breaking Change 버전입니다.
+> v2.0.0에서 마이그레이션하시려면 [v2.1.0 마이그레이션 가이드](v2.1.0-MIGRATION.md)를 참조하세요.
 
 ## 설치
 
@@ -26,13 +26,13 @@
 <dependency>
     <groupId>com.queue.file</groupId>
     <artifactId>FileQueueHelper</artifactId>
-    <version>3.0.0</version>
+    <version>2.1.0</version>
 </dependency>
 ```
 
 ### Gradle
 ```gradle
-implementation 'com.queue.file:FileQueueHelper:3.0.0'
+implementation 'com.queue.file:FileQueueHelper:2.1.0'
 ```
 
 ## 빠른 시작
@@ -210,7 +210,7 @@ try (BaseController queue = ControllerFactory.create("queue.mv")) {
 
 ## 성능
 
-### v3.0.0 개선사항
+### v2.1.0 개선사항
 
 - DataAccess 코드: 664줄 → 477줄 (28% 감소)
 - 파티션 그룹핑 로직 제거로 write 성능 향상
@@ -225,12 +225,12 @@ try (BaseController queue = ControllerFactory.create("queue.mv")) {
 mvn test-compile exec:java -Dexec.mainClass="com.queue.file.sample.LoadTest"
 ```
 
-## v2.x에서 마이그레이션
+## v2.0.0에서 마이그레이션
 
-v2.x에서 v3.0.0으로 업그레이드하는 경우:
+v2.0.0에서 v2.1.0으로 업그레이드하는 경우:
 
 1. **파티션 파라미터 제거**: 모든 API에서 `partition` 파라미터 삭제
-2. **API 변경 대응**: [마이그레이션 가이드](v3.0.0-MIGRATION.md) 참조
+2. **API 변경 대응**: [마이그레이션 가이드](v2.1.0-MIGRATION.md) 참조
 3. **테스트**: 기존 테스트 케이스 수정 및 검증
 
 ## API 문서
@@ -260,7 +260,7 @@ v2.x에서 v3.0.0으로 업그레이드하는 경우:
 
 ## 변경 이력
 
-### v3.0.0 (2025-11-28)
+### v2.1.0 (2025-11-28)
 - **Breaking Change**: 파티션 개념 완전 제거
 - 단일 큐 방식으로 전환
 - API 단순화 (partition 파라미터 제거)
