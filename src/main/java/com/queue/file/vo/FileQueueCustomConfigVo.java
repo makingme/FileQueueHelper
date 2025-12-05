@@ -1,10 +1,10 @@
 package com.queue.file.vo;
 
 public class FileQueueCustomConfigVo {
-    private int autoCommitDelay = 1000;
-    private int autoCommitMemory = 1024*19;
-    private int cacheSize = 16;
-    private int bulkSize = 10;
+    private int autoCommitDelay = 1000;  // milliseconds
+    private int autoCommitMemory = 19 * 1024;  // 19KB (H2 MVStore default recommendation)
+    private int cacheSize = 16;  // MB
+    private int bulkSize = 10;  // items per batch
 
     private boolean bulkCommit = false;
     private boolean stableMode = false;

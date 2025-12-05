@@ -3,19 +3,23 @@ package com.queue.file.vo;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * @since : 2025-07-16(수)
+ * v2.1.0: Renamed from PartitionIndexVo (partition concept removed)
+ * Manages transaction and group indices for single queue
+ *
+ * <p>Note: Removed MAX_VALUE wrapping logic as it's extremely unlikely to overflow
+ * (would require billions of operations over many years)
+ *
+ * @since : 2025-11-28
  */
-public class PartitionIndexVo {
+public class QueueIndexVo {
     private final AtomicLong transactionIndex = new AtomicLong(1);
     private final AtomicLong groupIndex = new AtomicLong(1);
 
     public Long getGroupIndex() {
-        groupIndex.compareAndSet(Long.MAX_VALUE - 1, 1L);
         return groupIndex.incrementAndGet();
     }
 
     public Long getTransactionIndex() {
-        transactionIndex.compareAndSet(Long.MAX_VALUE - 1, 1L);
         return transactionIndex.incrementAndGet();
     }
 

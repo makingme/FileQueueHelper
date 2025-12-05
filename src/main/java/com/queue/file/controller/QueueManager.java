@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Collections;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * v3.0.0: Manages single queue context (partition concept completely removed)
@@ -21,6 +22,10 @@ public class QueueManager {
     private static final Logger logger = LoggerFactory.getLogger(QueueManager.class);
     private final StoreInfo storeInfo;
     private final QueueContext queueContext;
+
+    // v2.1.0: Performance optimization - realign data key periodically
+    private final AtomicInteger operationCount = new AtomicInteger(0);
+    private static final int REALIGN_INTERVAL = 1000;  // Realign every 1000 operations
 
     public QueueManager(StoreInfo storeInfo) {
         this.storeInfo = storeInfo;
@@ -37,9 +42,9 @@ public class QueueManager {
 
         QueueContext context = new QueueContext();
         try {
-            context.setDataMap(store.openMap(Contents.getDataMapName()));
-            context.setReadBufferMap(store.openMap(Contents.getReadBufferName()));
-            context.setCacheMap(store.openMap(Contents.getCacheName()));
+            context.setDataMap(store.openMap(Contents.DATA_MAP_NAME));
+            context.setReadBufferMap(store.openMap(Contents.READ_BUFFER_NAME));
+            context.setCacheMap(store.openMap(Contents.CACHE_NAME));
         } catch (Exception e) {
             throw new InitializeException("큐 데이터 오픈 중 예외 발생: " + e.getMessage());
         }
@@ -48,6 +53,20 @@ public class QueueManager {
         return context;
     }
 
+    /**
+     * Realign data keys conditionally (performance optimization).
+     * v2.1.0: Only realigns every REALIGN_INTERVAL operations to reduce overhead.
+     */
+    public void realignDataKeyIfNeeded() throws UnsteadyStateException {
+        // Realign periodically, not every time
+        if (operationCount.incrementAndGet() % REALIGN_INTERVAL == 0) {
+            realignDataKey();
+        }
+    }
+
+    /**
+     * Realign data keys immediately (used during initialization).
+     */
     public void realignDataKey() throws UnsteadyStateException {
         logger.debug("realignDataKey");
         var dataKeyList = queueContext.getTransactionKeyList();
@@ -66,7 +85,7 @@ public class QueueManager {
             dataKeyList.clear();
             dataKeyList.addAll(dataMap.keySet());
             DataSyncInfo dataSyncInfo = new DataSyncInfo(dataCount, keyCount, dataCount - keyCount, Math.max(dataMapMaxKey, keyListMaxKey));
-            PartitionIndexVo indexVo = queueContext.getIndexVo();
+            QueueIndexVo indexVo = queueContext.getIndexVo();
             indexVo.setTransactionIndex(dataSyncInfo.getMaxKey() + 1);
             queueContext.setSyncInfo(dataSyncInfo);
         }

@@ -30,12 +30,10 @@ public class FileQueueConfigVo {
     private final String queueName;
     private final String queue;
 
-    private boolean encryptMode = false;
+    private String encryptMode = null;  // v2.1.0: Changed from boolean to String for custom encryption key
     private boolean compressMode = true;
     private boolean readOnlyMode = false;
     private boolean restoreMode = false;
-
-    private int limit = 0;
 
     private FileQueueCustomConfigVo customConfig = new FileQueueCustomConfigVo();
 
@@ -43,8 +41,8 @@ public class FileQueueConfigVo {
     public String getQueuePath() { return queuePath; }
     public String getQueueName() { return queueName; }
 
-    public boolean isEncryptMode() { return encryptMode; }
-    public void setEncryptMode(boolean encryptMode) { this.encryptMode = encryptMode; }
+    public String getEncryptMode() { return encryptMode; }
+    public void setEncryptMode(String encryptMode) { this.encryptMode = encryptMode; }
 
     public boolean isCompressMode() { return compressMode; }
     public void setCompressMode(boolean compressMode) { this.compressMode = compressMode; }
@@ -54,9 +52,6 @@ public class FileQueueConfigVo {
 
     public boolean isRestoreMode() { return restoreMode; }
     public void setRestoreMode(boolean restoreMode) { this.restoreMode = restoreMode; }
-
-    public int getLimit() { return limit; }
-    public void setLimit(int limit) { this.limit = limit; }
 
     public FileQueueCustomConfigVo getCustomConfig() { return customConfig; }
     public void setCustomConfig(FileQueueCustomConfigVo customConfig) { this.customConfig = customConfig; }

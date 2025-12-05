@@ -9,7 +9,10 @@
       "Bash(git commit:*)",
       "Bash(git rm:*)",
       "Bash(mvn compile:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(mvn clean compile:*)",
+      "Bash(dir /s /b:*)",
+      "Bash(mvn clean:*)"
     ],
     "deny": [],
     "ask": []

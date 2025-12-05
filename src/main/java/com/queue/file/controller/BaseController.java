@@ -235,7 +235,8 @@ public class BaseController implements AutoCloseable{
             }
 
             if (!locked) {
-                logger.error("Failed to lock queue after retries");
+                logger.error("Failed to acquire lock for graceful shutdown after {} retries", maxRetry);
+                logger.warn("Proceeding with force close - data may be inconsistent if other threads are active");
             }
 
             // Store close (큐 + 캐시)

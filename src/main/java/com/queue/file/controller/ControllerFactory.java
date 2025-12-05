@@ -139,8 +139,9 @@ public class ControllerFactory {
 
         String configInfo = DataUtils.appendMap(new StringBuilder(), configMap).toString();
         MVStore.Builder builder = MVStore.Builder.fromString(configInfo);
-        if (configVo.isEncryptMode()) {
-            builder.encryptionKey("123ENCRYPT_KEY321".toCharArray());
+        // v2.1.0: Encryption key is now provided by user via configVo.setEncryptMode(key)
+        if (configVo.getEncryptMode() != null && !configVo.getEncryptMode().isEmpty()) {
+            builder.encryptionKey(configVo.getEncryptMode().toCharArray());
         }
 
         MVStore store = builder.open();
@@ -181,6 +182,15 @@ public class ControllerFactory {
     }
 
     public static void checkStore(String filePath) throws InitializeException{
+        logger.debug("checkStore: {}", filePath);
+
+        // v2.1.0: Check file existence first to prevent creating new file
+        Path path = Paths.get(filePath);
+        if (!Files.exists(path)) {
+            logger.info("Store file does not exist, skipping health check: {}", filePath);
+            return;  // New files don't need health check
+        }
+
         MVStore store = null;
         try {
             store = new MVStore.Builder()

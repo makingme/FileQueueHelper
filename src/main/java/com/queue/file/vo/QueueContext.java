@@ -11,7 +11,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class QueueContext {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    private final PartitionIndexVo indexVo = new PartitionIndexVo();
+    private final QueueIndexVo indexVo = new QueueIndexVo();
     private final ConcurrentSkipListSet<Long> transactionKeyList = new ConcurrentSkipListSet<>();
 
     private MVMap<Long, FileQueueData> dataMap;
@@ -23,7 +23,7 @@ public class QueueContext {
         return lock;
     }
 
-    public PartitionIndexVo getIndexVo() {
+    public QueueIndexVo getIndexVo() {
         return indexVo;
     }
 

@@ -66,7 +66,7 @@ public class DataAccess {
         ReentrantReadWriteLock.WriteLock writeLock = ctx.getLock().writeLock();
 
         writeLock.lock();
-        boolean needsRollback = false;
+        boolean isCommitted = false;  // v2.1.0: Renamed from needsRollback for clarity
         try {
             long groupKey = ctx.getIndexVo().getGroupIndex();
             ConcurrentSkipListSet<Long> dataKeyList = ctx.getTransactionKeyList();
@@ -89,13 +89,13 @@ public class DataAccess {
 
             if (isBulk && customConfigVo.isBulkCommit()) {
                 storeInfo.getStore().commit();
-                needsRollback = true;
+                isCommitted = true;  // Mark as committed for potential rollback
             }
 
             statsTracker.keepRecord(executorName, storeDataList.size(), ActionType.INPUT);
 
         }catch (Exception e) {
-            if (needsRollback) {
+            if (isCommitted) {  // Only rollback if we committed
                 try {
                     storeInfo.getStore().rollback();
                 }catch (Exception e1) {
@@ -115,6 +115,26 @@ public class DataAccess {
         return (fileQueueDataList == null || fileQueueDataList.isEmpty()) ? null : fileQueueDataList.get(0);
     }
 
+    /**
+     * Reads data from the queue and moves it to the read buffer.
+     *
+     * <p><b>Important:</b> This method uses WriteLock for data integrity.
+     * It performs two operations atomically:
+     * <ol>
+     *   <li>Reads data from DataMap</li>
+     *   <li><b>Removes data from DataMap and moves to ReadBuffer</b> (modification operation)</li>
+     * </ol>
+     *
+     * <p>The write lock ensures data consistency during the move operation.
+     * Concurrent reads are not supported by design to prioritize data integrity.
+     * For concurrent scenarios, use separate executor names to isolate buffers.
+     *
+     * @param executorName the executor name for buffer isolation
+     * @param requestCount maximum number of items to read
+     * @return list of queue data moved to the buffer
+     * @throws QueueException if the queue is not opened or data map is in abnormal state
+     * @since v2.1.0
+     */
     public List<FileQueueData> read(String executorName, int requestCount) throws QueueException {
         logger.debug("read executor={} count={}", executorName, requestCount);
         if (storeInfo.getStoreOpenTime() == null) {
@@ -188,7 +208,7 @@ public class DataAccess {
         logger.debug("extractData count={}", selectCount);
         List<FileQueueData> queueDataList = new ArrayList<>(selectCount);
         try {
-            queueManager.realignDataKey();
+            queueManager.realignDataKeyIfNeeded();  // v2.1.0: Performance optimization
 
             ConcurrentSkipListSet<Long> dataKeyList = ctx.getTransactionKeyList();
             MVMap<Long, FileQueueData> dataMap = ctx.getDataMap();
@@ -460,7 +480,7 @@ public class DataAccess {
             ConcurrentSkipListSet<Long> keyList = ctx.getTransactionKeyList();
             if (keyList != null) {
                 try {
-                    queueManager.realignDataKey();
+                    queueManager.realignDataKeyIfNeeded();  // v2.1.0: Performance optimization
                 } catch (UnsteadyStateException ignore) {
                     // ignore and continue
                 }

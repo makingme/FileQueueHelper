@@ -44,10 +44,10 @@ public class ControllerFactoryTest {
 
         FileQueueData data = controller.read();
         assertNotNull(data);
-        Map<String, List<FileQueueData>> buffers = controller.getPartitionBufferList(Contents.DEFAULT_PARTITION);
+        Map<String, List<FileQueueData>> buffers = controller.getBufferList();
         assertTrue(buffers.containsKey(Thread.currentThread().getName()));
         controller.readCommit(Thread.currentThread().getName());
-        buffers = controller.getPartitionBufferList(Contents.DEFAULT_PARTITION);
+        buffers = controller.getBufferList();
         assertFalse(buffers.containsKey(Thread.currentThread().getName()));
 
         controller.close();

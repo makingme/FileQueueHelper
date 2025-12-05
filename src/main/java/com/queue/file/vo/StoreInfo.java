@@ -1,6 +1,8 @@
 package com.queue.file.vo;
 
 import org.h2.mvstore.MVStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
 
@@ -8,6 +10,8 @@ import java.time.LocalDateTime;
  * @since : 2025-07-07(월)
  */
 public class StoreInfo {
+    private static final Logger logger = LoggerFactory.getLogger(StoreInfo.class);
+
     public StoreInfo(FileQueueConfigVo configVo) {
         this.CONFIG = configVo;
     }
@@ -36,21 +40,39 @@ public class StoreInfo {
         this.cacheStoreOpenTime = LocalDateTime.now();
     }
 
-    // 모든 Store 닫기
-    public void closeAll() {
+    /**
+     * Closes all stores (main queue store and cache store).
+     * v2.1.0: Now propagates exceptions to caller for proper error handling
+     *
+     * @throws Exception if any store fails to close
+     */
+    public void closeAll() throws Exception {
+        Exception firstException = null;
+
         if (store != null && !store.isClosed()) {
             try {
                 store.close();
             } catch (Exception e) {
-                // 로깅은 호출자가 처리
+                logger.error("Failed to close main store", e);
+                firstException = e;
             }
         }
+
         if (cacheStore != null && !cacheStore.isClosed()) {
             try {
                 cacheStore.close();
             } catch (Exception e) {
-                // 로깅은 호출자가 처리
+                logger.error("Failed to close cache store", e);
+                if (firstException == null) {
+                    firstException = e;
+                } else {
+                    firstException.addSuppressed(e);
+                }
             }
+        }
+
+        if (firstException != null) {
+            throw firstException;
         }
     }
 

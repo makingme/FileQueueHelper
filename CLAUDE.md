@@ -8,7 +8,7 @@ FileQueueHelper는 H2 MVStore 기반의 파일 큐 데이터 파이프라인 라
 
 - **GroupId**: io.github.makingme
 - **ArtifactId**: FileQueueHelper
-- **Version**: 2.0.0
+- **Version**: 2.1.0
 - **License**: MIT
 
 ## 빌드 및 테스트 명령어
@@ -62,15 +62,15 @@ mvn javadoc:javadoc
    - read/readCommit: 데이터 읽기 및 커밋
    - AutoCloseable 구현으로 자동 리소스 관리
 
-3. **PartitionManager** (src/main/java/com/queue/file/controller/PartitionManager.java)
-   - 파티션별 데이터 관리
-   - PartitionContext를 통한 DataMap, ReadBufferMap, CacheMap 관리
-   - 파티션 초기화 및 정렬 (realignAllPartitions)
+3. **QueueManager** (src/main/java/com/queue/file/controller/QueueManager.java)
+   - 단일 큐 데이터 관리
+   - QueueContext를 통한 DataMap, ReadBufferMap, CacheMap 관리
+   - 큐 초기화 및 데이터 키 재정렬
 
 4. **DataAccess** (src/main/java/com/queue/file/controller/DataAccess.java)
    - 실제 데이터 읽기/쓰기 로직
    - Lock 메커니즘을 통한 동시성 제어
-   - Tag 및 Partition 기반 데이터 분류
+   - Tag 기반 데이터 분류 및 Executor별 버퍼 관리
 
 5. **StatsTracker** (src/main/java/com/queue/file/controller/StatsTracker.java)
    - 통계 정보 추적 및 관리
@@ -92,7 +92,7 @@ mvn javadoc:javadoc
 - **FileQueueConfigVo**: 기본 큐 설정 (경로, 이름, 암호화/압축 모드)
 - **FileQueueCustomConfigVo**: 커스텀 설정 (autoCommit, cache, bulk 옵션)
 - **FileQueueData**: 큐 데이터 엔티티
-- **PartitionContext**: 파티션별 MVMap 컨텍스트
+- **QueueContext**: 단일 큐의 MVMap 컨텍스트
 - **StoreInfo**: MVStore 및 설정 정보 보관
 
 ### 예외 계층
@@ -129,8 +129,8 @@ BaseController customController = ControllerFactory.createCustomController(confi
 ```java
 // 쓰기
 controller.write("data");
-controller.write("partition1", "data");
-controller.writeBulk("partition1", dataList);
+controller.write("tag1", "executor1", "data");
+controller.writeBulk("tag1", "executor1", dataList);
 
 // 읽기
 List<FileQueueData> data = controller.read("executorName", 10);
@@ -140,7 +140,7 @@ controller.readCommit("executorName");
 ## 테스트 구조
 
 - **src/test/java/**: JUnit 기반 단위 테스트
-  - BaseControllerTest, PartitionManagerTest, DataAccessTest 등
+  - BaseControllerTest, DataAccessTest 등
 - **src/test/com/queue/sample/**: 샘플 및 부하 테스트
   - LoadTest.java: 멀티 프로듀서/컨슈머 부하 테스트 (TPS 측정 포함)
   - ProducerSample.java, ConsumerSample.java: 사용 예제
