@@ -50,9 +50,14 @@ public class QueueManager {
             throw new InitializeException("큐 데이터 오픈 중 예외 발생: " + e.getMessage());
         }
 
+        // Assign to field before calling realignDataKey() which uses this.queueContext
+        QueueContext tempContext = this.queueContext;
+        this.queueContext = context;
+
         try {
             realignDataKey();
         } catch (UnsteadyStateException e) {
+            this.queueContext = tempContext;  // Restore on failure
             throw new InitializeException("큐 초기화 중 데이터 정렬 실패: " + e.getMessage(), e);
         }
 
