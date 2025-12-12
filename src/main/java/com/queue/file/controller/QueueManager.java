@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Collections;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -49,7 +50,12 @@ public class QueueManager {
             throw new InitializeException("큐 데이터 오픈 중 예외 발생: " + e.getMessage());
         }
 
-        realignDataKey();
+        try {
+            realignDataKey();
+        } catch (UnsteadyStateException e) {
+            throw new InitializeException("큐 초기화 중 데이터 정렬 실패: " + e.getMessage(), e);
+        }
+
         return context;
     }
 
@@ -69,7 +75,7 @@ public class QueueManager {
      */
     public void realignDataKey() throws UnsteadyStateException {
         logger.debug("realignDataKey");
-        var dataKeyList = queueContext.getTransactionKeyList();
+        ConcurrentSkipListSet<Long> dataKeyList = queueContext.getTransactionKeyList();
         MVMap<Long, FileQueueData> dataMap = queueContext.getDataMap();
 
         if(dataMap == null) {
