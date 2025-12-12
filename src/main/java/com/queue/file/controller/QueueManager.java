@@ -50,14 +50,9 @@ public class QueueManager {
             throw new InitializeException("큐 데이터 오픈 중 예외 발생: " + e.getMessage());
         }
 
-        // Assign to field before calling realignDataKey() which uses this.queueContext
-        QueueContext tempContext = this.queueContext;
-        this.queueContext = context;
-
         try {
-            realignDataKey();
+            realignDataKey(context);
         } catch (UnsteadyStateException e) {
-            this.queueContext = tempContext;  // Restore on failure
             throw new InitializeException("큐 초기화 중 데이터 정렬 실패: " + e.getMessage(), e);
         }
 
@@ -79,9 +74,17 @@ public class QueueManager {
      * Realign data keys immediately (used during initialization).
      */
     public void realignDataKey() throws UnsteadyStateException {
+        realignDataKey(queueContext);
+    }
+
+    /**
+     * Realign data keys for the given context (used during initialization).
+     * @param ctx the queue context to realign
+     */
+    private void realignDataKey(QueueContext ctx) throws UnsteadyStateException {
         logger.debug("realignDataKey");
-        ConcurrentSkipListSet<Long> dataKeyList = queueContext.getTransactionKeyList();
-        MVMap<Long, FileQueueData> dataMap = queueContext.getDataMap();
+        ConcurrentSkipListSet<Long> dataKeyList = ctx.getTransactionKeyList();
+        MVMap<Long, FileQueueData> dataMap = ctx.getDataMap();
 
         if(dataMap == null) {
             throw new UnsteadyStateException("데이터 영역이 존재하지 않음");
@@ -96,9 +99,9 @@ public class QueueManager {
             dataKeyList.clear();
             dataKeyList.addAll(dataMap.keySet());
             DataSyncInfo dataSyncInfo = new DataSyncInfo(dataCount, keyCount, dataCount - keyCount, Math.max(dataMapMaxKey, keyListMaxKey));
-            QueueIndexVo indexVo = queueContext.getIndexVo();
+            QueueIndexVo indexVo = ctx.getIndexVo();
             indexVo.setTransactionIndex(dataSyncInfo.getMaxKey() + 1);
-            queueContext.setSyncInfo(dataSyncInfo);
+            ctx.setSyncInfo(dataSyncInfo);
         }
     }
 
