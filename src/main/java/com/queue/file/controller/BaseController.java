@@ -28,7 +28,7 @@ public class BaseController implements AutoCloseable{
     private final QueueManager queueManager;
     private final DataAccess dataAccess;
 
-    BaseController(StoreInfo storeInfo) {
+    BaseController(StoreInfo storeInfo) throws InitializeException {
         this.storeInfo = storeInfo;
         this.queueManager = new QueueManager(storeInfo);
         this.dataAccess = new DataAccess(storeInfo, queueManager);

@@ -28,7 +28,7 @@ public class QueueManager {
     private final AtomicInteger operationCount = new AtomicInteger(0);
     private static final int REALIGN_INTERVAL = 1000;  // Realign every 1000 operations
 
-    public QueueManager(StoreInfo storeInfo) {
+    public QueueManager(StoreInfo storeInfo) throws InitializeException {
         this.storeInfo = storeInfo;
         logger.debug("initialize QueueManager (v3.0.0 - single queue only)");
         this.queueContext = initializeQueue();
