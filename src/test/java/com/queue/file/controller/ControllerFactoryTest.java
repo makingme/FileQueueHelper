@@ -5,14 +5,35 @@ import com.queue.file.utils.Contents;
 import com.queue.file.vo.FileQueueData;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.junit.Assert.*;
 
 public class ControllerFactoryTest {
+
+    /**
+     * Recursively delete directory and all its contents
+     */
+    private void deleteDirectory(Path dir) throws IOException {
+        if (Files.exists(dir)) {
+            try (Stream<Path> walk = Files.walk(dir)) {
+                walk.sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException e) {
+                            // Ignore
+                        }
+                    });
+            }
+        }
+    }
 
     @Test
     public void testCreateAndBasicIO() throws Exception {
@@ -30,8 +51,7 @@ public class ControllerFactoryTest {
 
         controller.close();
         assertTrue(controller.getStoreInfo().getStore().isClosed());
-        Files.deleteIfExists(dir.resolve("t.mv"));
-        Files.deleteIfExists(dir);
+        deleteDirectory(dir);
     }
 
     @Test
@@ -52,8 +72,7 @@ public class ControllerFactoryTest {
 
         controller.close();
         assertTrue(controller.getStoreInfo().getStore().isClosed());
-        Files.deleteIfExists(dir.resolve("s.mv"));
-        Files.deleteIfExists(dir);
+        deleteDirectory(dir);
     }
 
     @Test(expected = InitializeException.class)
@@ -82,8 +101,7 @@ public class ControllerFactoryTest {
         controller.readCommit(Thread.currentThread().getName());
 
         controller.close();
-        Files.deleteIfExists(dir.resolve("b.mv"));
-        Files.deleteIfExists(dir);
+        deleteDirectory(dir);
     }
 
     @Test
@@ -99,7 +117,6 @@ public class ControllerFactoryTest {
 
         ControllerFactory.checkStore(queue);
 
-        Files.deleteIfExists(dir.resolve("c.mv"));
-        Files.deleteIfExists(dir);
+        deleteDirectory(dir);
     }
 }
