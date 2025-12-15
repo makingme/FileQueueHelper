@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * v3.0.0: Manages single queue context (partition concept completely removed)
+ * v2.1.0: Manages single queue context (partition concept completely removed)
  * @since : 2025-11-28
  */
 public class QueueManager {
@@ -30,7 +30,7 @@ public class QueueManager {
 
     public QueueManager(StoreInfo storeInfo) throws InitializeException {
         this.storeInfo = storeInfo;
-        logger.debug("initialize QueueManager (v3.0.0 - single queue only)");
+        logger.debug("initialize QueueManager (v2.1.0 - single queue only)");
         this.queueContext = initializeQueue();
     }
 

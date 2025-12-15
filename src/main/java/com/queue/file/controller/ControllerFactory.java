@@ -235,8 +235,10 @@ public class ControllerFactory {
 
         } catch (MVStoreException e) {
             logger.error("❌ Failed to open MVStore. Possibly due to unsupported format or file corruption: {}", e.getMessage());
+            throw new InitializeException(e.getMessage(), e);
         } catch (Exception e) {
             logger.error("❌ Unexpected error during MVStore health check", e);
+            throw new InitializeException(e.getMessage(), e);
         } finally {
             if (store != null) {
                 try{
@@ -257,6 +259,7 @@ public class ControllerFactory {
     private static int getLastChunkIdFromFileStore(MVStore store) throws InitializeException{
         try {
             // 시도 1: H2 2.2.x 이후 버전 (FileStore.lastChunkId)
+            logger.info("⚠ 2.1 Over version. Check fileStore...");
             Field fileStoreField = MVStore.class.getDeclaredField("fileStore");
             fileStoreField.setAccessible(true);
             Object fileStore = fileStoreField.get(store);
@@ -277,6 +280,7 @@ public class ControllerFactory {
 
         // 시도 3: MVStore.lastChunkId (1.4 ~ 2.1 시절)
         try {
+            logger.info("⚠ 2.2 Under version. Trying MVStore directly...");
             Field legacyField = MVStore.class.getDeclaredField("lastChunkId");
             legacyField.setAccessible(true);
             return legacyField.getInt(store);
