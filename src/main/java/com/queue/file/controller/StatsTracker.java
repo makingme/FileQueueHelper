@@ -20,32 +20,32 @@ public class StatsTracker {
     // 처리 건수
     private final LongAdder TOTAL_OUTPUT_COUNT = new LongAdder();
 
-    public void keepRecord(String executorName, ActionType actionType) {
-        keepRecord(executorName, 1, actionType);
+    public void keepRecord(String executorId, ActionType actionType) {
+        keepRecord(executorId, 1, actionType);
     }
 
-    public void keepRecord(String executorName, long count, ActionType actionType) {
-        logger.debug("keepRecord executor={} action={}", executorName, actionType);
+    public void keepRecord(String executorId, long count, ActionType actionType) {
+        logger.debug("keepRecord executor={} action={}", executorId, actionType);
         switch (actionType) {
             case INPUT:
                 addTOTAL_INPUT_COUNT(count);
-                inOutStorage.addInputCount(executorName, count);
+                inOutStorage.addInputCount(executorId, count);
                 break;
             case OUTPUT:
                 addTOTAL_OUTPUT_COUNT(count);
-                inOutStorage.addOutputCount(executorName, count);
+                inOutStorage.addOutputCount(executorId, count);
                 break;
             case OUTPUT_INVOKE:
-                inOutStorage.recordOutputInvokeHistory(executorName);
+                inOutStorage.recordOutputInvokeHistory(executorId);
                 break;
             case BUFFER_INPUT:
-                inOutStorage.addBufferInputCount(executorName, count);
+                inOutStorage.addBufferInputCount(executorId, count);
                 break;
             case BUFFER_OUTPUT:
-                inOutStorage.addBufferOutputCount(executorName, count);
+                inOutStorage.addBufferOutputCount(executorId, count);
                 break;
             case BUFFER_OUTPUT_INVOKE:
-                inOutStorage.recordBufferOutputInvokeHistory(executorName);
+                inOutStorage.recordBufferOutputInvokeHistory(executorId);
                 break;
         }
     }

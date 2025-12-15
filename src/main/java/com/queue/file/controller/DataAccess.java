@@ -25,27 +25,27 @@ public class DataAccess {
         this.queueManager = queueManager;
     }
 
-    public void write(String tag, String executorName, String data) throws QueueException {
+    public void write(String tag, String producerId, String data) throws QueueException {
         if (data == null || data.isEmpty()) {
             return;
         }
-        logger.debug("write tag={} executor={}", tag, executorName);
-        writeQueueData(executorName, Collections.singletonList(new FileQueueData(tag, data)));
+        logger.debug("write tag={} executor={}", tag, producerId);
+        writeQueueData(producerId, Collections.singletonList(new FileQueueData(tag, data)));
     }
 
-    public void writeBulk(String tag, String executorName, List<String> dataList) throws QueueException {
+    public void writeBulk(String tag, String producerId, List<String> dataList) throws QueueException {
         if (dataList ==null || dataList.isEmpty()) {
             return;
         }
-        logger.debug("writeBulk tag={} executor={} size={}", tag, executorName, dataList.size());
+        logger.debug("writeBulk tag={} executor={} size={}", tag, producerId, dataList.size());
         List<FileQueueData> storeDataList = new ArrayList<>(dataList.size());
         for (String data : dataList) {
             storeDataList.add(new FileQueueData(tag, data));
         }
-        writeQueueData(executorName, storeDataList);
+        writeQueueData(producerId, storeDataList);
     }
 
-    public void writeQueueData(String executorName, List<FileQueueData> storeDataList) throws QueueException {
+    public void writeQueueData(String producerId, List<FileQueueData> storeDataList) throws QueueException {
         // store 상태 체크
         try{
             queueManager.checkStore();
@@ -53,7 +53,7 @@ public class DataAccess {
             throw new QueueException(e);
         }
 
-        logger.debug("writeQueueData executor={} size={}", executorName, storeDataList==null?0:storeDataList.size());
+        logger.debug("writeQueueData executor={} size={}", producerId, storeDataList==null?0:storeDataList.size());
 
         if (storeDataList==null || storeDataList.isEmpty()) {
             return;
@@ -92,7 +92,7 @@ public class DataAccess {
                 isCommitted = true;  // Mark as committed for potential rollback
             }
 
-            statsTracker.keepRecord(executorName, storeDataList.size(), ActionType.INPUT);
+            statsTracker.keepRecord(producerId, storeDataList.size(), ActionType.INPUT);
 
         }catch (Exception e) {
             if (isCommitted) {  // Only rollback if we committed
@@ -109,9 +109,9 @@ public class DataAccess {
         }
     }
 
-    public FileQueueData read(String executorName) throws QueueException {
-        logger.debug("read single executor={}", executorName);
-        List<FileQueueData> fileQueueDataList = read(executorName, 1);
+    public FileQueueData read(String consumerId) throws QueueException {
+        logger.debug("read single executor={}", consumerId);
+        List<FileQueueData> fileQueueDataList = read(consumerId, 1);
         return (fileQueueDataList == null || fileQueueDataList.isEmpty()) ? null : fileQueueDataList.get(0);
     }
 
@@ -129,24 +129,24 @@ public class DataAccess {
      * Concurrent reads are not supported by design to prioritize data integrity.
      * For concurrent scenarios, use separate executor names to isolate buffers.
      *
-     * @param executorName the executor name for buffer isolation
+     * @param consumerId the executor name for buffer isolation
      * @param requestCount maximum number of items to read
      * @return list of queue data moved to the buffer
      * @throws QueueException if the queue is not opened or data map is in abnormal state
      * @since v2.1.0
      */
-    public List<FileQueueData> read(String executorName, int requestCount) throws QueueException {
-        logger.debug("read executor={} count={}", executorName, requestCount);
+    public List<FileQueueData> read(String consumerId, int requestCount) throws QueueException {
+        logger.debug("read executor={} count={}", consumerId, requestCount);
         if (storeInfo.getStoreOpenTime() == null) {
             throw new QueueReadException("open 되지 않음 - open() 호출 필요");
         }
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
         FileQueueCustomConfigVo customConfigVo = configVo.getCustomConfig();
-        statsTracker.keepRecord(executorName, ActionType.OUTPUT_INVOKE);
+        statsTracker.keepRecord(consumerId, ActionType.OUTPUT_INVOKE);
 
         // Stable 모드: 버퍼 확인
         if (customConfigVo.isStableMode()) {
-            List<FileQueueData> bufferDataList = readBuffer(executorName);
+            List<FileQueueData> bufferDataList = readBuffer(consumerId);
             if (bufferDataList != null && !bufferDataList.isEmpty()) {
                 return bufferDataList;
             }
@@ -173,8 +173,8 @@ public class DataAccess {
             if (customConfigVo.isStableMode()) {
                 MVMap<String, List<FileQueueData>> readBufferMap = ctx.getReadBufferMap();
                 if (readBufferMap != null && !readBufferMap.isClosed()) {
-                    readBufferMap.put(executorName, queueDataList);
-                    statsTracker.keepRecord(executorName, ActionType.BUFFER_INPUT);
+                    readBufferMap.put(consumerId, queueDataList);
+                    statsTracker.keepRecord(consumerId, ActionType.BUFFER_INPUT);
                 }
             }
 
@@ -183,7 +183,7 @@ public class DataAccess {
                 isCommitted = true;
             }
 
-            statsTracker.keepRecord(executorName, queueDataList.size(), ActionType.OUTPUT);
+            statsTracker.keepRecord(consumerId, queueDataList.size(), ActionType.OUTPUT);
             return queueDataList;
 
         } catch (QueueReadException e) {
@@ -231,9 +231,9 @@ public class DataAccess {
         }
     }
 
-    private List<FileQueueData> readBuffer(String executorName) throws QueueException {
-        statsTracker.keepRecord(executorName, ActionType.BUFFER_OUTPUT_INVOKE);
-        logger.debug("readBuffer executor={}", executorName);
+    private List<FileQueueData> readBuffer(String consumerId) throws QueueException {
+        statsTracker.keepRecord(consumerId, ActionType.BUFFER_OUTPUT_INVOKE);
+        logger.debug("readBuffer executor={}", consumerId);
 
         QueueContext ctx = queueManager.getQueueContext();
         MVMap<String, List<FileQueueData>> readBufferMap = ctx.getReadBufferMap();
@@ -244,17 +244,17 @@ public class DataAccess {
         ReentrantReadWriteLock.ReadLock readLock = ctx.getLock().readLock();
         readLock.lock();
         try {
-            List<FileQueueData> queueDataList = readBufferMap.get(executorName);
+            List<FileQueueData> queueDataList = readBufferMap.get(consumerId);
             return queueDataList;
         } catch (Exception e) {
-            logger.error("readBuffer failed executor={}", executorName, e);
-            throw new QueueReadException(executorName + "버퍼 영역 데이터 파싱 중 예외 발생", e);
+            logger.error("readBuffer failed executor={}", consumerId, e);
+            throw new QueueReadException(consumerId + "버퍼 영역 데이터 파싱 중 예외 발생", e);
         } finally {
             readLock.unlock();
         }
     }
 
-    public void readCommit(String executorName) throws QueueException {
+    public void readCommit(String consumerId) throws QueueException {
         if (storeInfo.getStoreOpenTime() == null) {
             throw new QueueReadException("open 되지 않음 - open() 호출 필요");
         }
@@ -268,9 +268,9 @@ public class DataAccess {
         ReentrantReadWriteLock.WriteLock writeLock = ctx.getLock().writeLock();
         writeLock.lock();
         try {
-            logger.debug("readCommit executor={}", executorName);
-            readBufferMap.remove(executorName);
-            statsTracker.keepRecord(executorName, ActionType.BUFFER_OUTPUT);
+            logger.debug("readCommit executor={}", consumerId);
+            readBufferMap.remove(consumerId);
+            statsTracker.keepRecord(consumerId, ActionType.BUFFER_OUTPUT);
         } catch (Exception e) {
             logger.error("readCommit failed", e);
             throw new QueueReadException("[" + storeInfo.getCONFIG().getQueueName() + "] 큐, 버퍼 COMMIT 실패", e);
@@ -383,7 +383,7 @@ public class DataAccess {
     }
 
     /** 특정 버퍼 정보 가져오는 함수 */
-    public List<FileQueueData> getBuffer(String executorName) {
+    public List<FileQueueData> getBuffer(String consumerId) {
         QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().readLock().lock();
         try {
@@ -391,7 +391,7 @@ public class DataAccess {
             if (map == null) {
                 return Collections.emptyList();
             }
-            List<FileQueueData> list = map.get(executorName);
+            List<FileQueueData> list = map.get(consumerId);
             return list == null ? Collections.emptyList() : new ArrayList<>(list);
         } finally {
             ctx.getLock().readLock().unlock();
@@ -412,12 +412,12 @@ public class DataAccess {
     }
 
     /** 특정 버퍼 정보 삭제 함수 */
-    public void clearBuffer(String executorName) {
+    public void clearBuffer(String consumerId) {
         QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             if (ctx.getReadBufferMap() != null) {
-                ctx.getReadBufferMap().remove(executorName);
+                ctx.getReadBufferMap().remove(consumerId);
             }
         } finally {
             ctx.getLock().writeLock().unlock();
@@ -462,13 +462,13 @@ public class DataAccess {
     }
 
     /** 버퍼 또는 데이터 한 건 제거 */
-    public void removeOne(String executorName) {
+    public void removeOne(String consumerId) {
         QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
             MVMap<String, List<FileQueueData>> bufferMap = ctx.getReadBufferMap();
-            if (bufferMap != null && bufferMap.containsKey(executorName)) {
-                bufferMap.remove(executorName);
+            if (bufferMap != null && bufferMap.containsKey(consumerId)) {
+                bufferMap.remove(consumerId);
                 return;
             }
 

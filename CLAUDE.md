@@ -129,12 +129,12 @@ BaseController customController = ControllerFactory.createCustomController(confi
 ```java
 // 쓰기
 controller.write("data");
-controller.write("tag1", "executor1", "data");
-controller.writeBulk("tag1", "executor1", dataList);
+controller.write("tag1", "producer1", "data");
+controller.writeBulk("tag1", "producer1", dataList);
 
 // 읽기
-List<FileQueueData> data = controller.read("executorName", 10);
-controller.readCommit("executorName");
+List<FileQueueData> data = controller.read("consumerId", 10);
+controller.readCommit("consumerId");
 ```
 
 ## 테스트 구조

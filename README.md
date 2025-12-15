@@ -69,28 +69,28 @@ List<String> dataList = Arrays.asList("data1", "data2", "data3", "data4", "data5
 queue.writeBulk(dataList);
 
 // 대량 데이터 읽기 (최대 10개)
-List<FileQueueData> results = queue.read("myExecutor", 10);
+List<FileQueueData> results = queue.read("myConsumer", 10);
 for (FileQueueData item : results) {
     System.out.println(item.getData());
 }
 
 // 읽기 커밋
-queue.readCommit("myExecutor");
+queue.readCommit("myConsumer");
 ```
 
-### 3. Tag 및 Executor 사용
+### 3. Tag 및 Consumer/Producer 사용
 
 ```java
-// Tag와 Executor를 지정한 쓰기
-queue.write("importantTag", "executor1", "critical data");
+// Tag와 Producer를 지정한 쓰기
+queue.write("importantTag", "producer1", "critical data");
 
-// Executor별 읽기
-FileQueueData data1 = queue.read("executor1");
-FileQueueData data2 = queue.read("executor2");
+// Consumer별 읽기
+FileQueueData data1 = queue.read("consumer1");
+FileQueueData data2 = queue.read("consumer2");
 
-// Executor별 커밋
-queue.readCommit("executor1");
-queue.readCommit("executor2");
+// Consumer별 커밋
+queue.readCommit("consumer1");
+queue.readCommit("consumer2");
 ```
 
 ### 4. 큐 상태 조회
@@ -105,7 +105,7 @@ System.out.println("캐시 건수: " + summary.getCacheCount());
 // 전체 데이터 목록 조회
 List<FileQueueData> dataList = queue.getDataList();
 
-// 버퍼 목록 조회 (Executor별)
+// 버퍼 목록 조회 (Consumer별)
 Map<String, List<FileQueueData>> bufferList = queue.getBufferList();
 ```
 
@@ -122,7 +122,7 @@ queue.removeData(12345L);
 queue.clearData();
 
 // 버퍼 삭제
-queue.clearBuffer("executor1");  // 특정 executor 버퍼만
+queue.clearBuffer("consumer1");  // 특정 consumer 버퍼만
 queue.clearBuffer();              // 전체 버퍼
 
 // 캐시 관리
@@ -240,12 +240,12 @@ v2.0.0에서 v2.1.0으로 업그레이드하는 경우:
 | 메서드 | 설명 |
 |--------|------|
 | `write(String data)` | 데이터 쓰기 |
-| `write(String tag, String executorName, String data)` | Tag/Executor 지정 쓰기 |
+| `write(String tag, String producerId, String data)` | Tag/Producer 지정 쓰기 |
 | `writeBulk(List<String> dataList)` | 대량 데이터 쓰기 |
 | `read()` | 단일 데이터 읽기 |
-| `read(String executorName)` | Executor 지정 읽기 |
-| `read(String executorName, int count)` | 대량 데이터 읽기 |
-| `readCommit(String executorName)` | 읽기 커밋 |
+| `read(String consumerId)` | Consumer 지정 읽기 |
+| `read(String consumerId, int count)` | 대량 데이터 읽기 |
+| `readCommit(String consumerId)` | 읽기 커밋 |
 | `getSummaryInfo()` | 큐 요약 정보 조회 |
 | `getDataList()` | 전체 데이터 목록 조회 |
 | `clearData()` | 전체 데이터 삭제 |

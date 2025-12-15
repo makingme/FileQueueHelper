@@ -31,60 +31,60 @@ public class InOutStorage {
     private final Map<String, LocalDateTime> bufferOutputHistoryMap = new ConcurrentHashMap<>();
     private final AtomicLong bufferOutputCount = new AtomicLong(0);
 
-    public void recordOutputInvokeHistory(String executorName){
-        outputInvokeHistoryMap.put(executorName, LocalDateTime.now());
+    public void recordOutputInvokeHistory(String consumerId){
+        outputInvokeHistoryMap.put(consumerId, LocalDateTime.now());
     }
     public Map<String, LocalDateTime> getOutputInvokeHistoryMap() {
         return Collections.unmodifiableMap(outputInvokeHistoryMap);
     }
 
-    public void recordBufferOutputInvokeHistory(String executorName){
-        bufferOutputInvokeHistoryMap.put(executorName, LocalDateTime.now());
+    public void recordBufferOutputInvokeHistory(String consumerId){
+        bufferOutputInvokeHistoryMap.put(consumerId, LocalDateTime.now());
     }
     public Map<String, LocalDateTime> getBufferOutputInvokeHistoryMap() {
         return Collections.unmodifiableMap(bufferOutputInvokeHistoryMap);
     }
 
     public Long getInputCount() { return inputCount.get(); }
-    public void addInputCount(String executorName, Long count) {
+    public void addInputCount(String producerId, Long count) {
         inputCount.updateAndGet(currentValue -> {
             if (currentValue >= Long.MAX_VALUE - count) {
                 return count;
             }
-            inputHistoryMap.put(executorName, LocalDateTime.now());
+            inputHistoryMap.put(producerId, LocalDateTime.now());
             return currentValue + count;
         });
     }
 
     public Long getOutputCount() { return outputCount.get(); }
-    public void addOutputCount(String executorName, Long count) {
+    public void addOutputCount(String consumerId, Long count) {
         outputCount.updateAndGet(currentValue -> {
             if (currentValue >= Long.MAX_VALUE - count) {
                 return count;
             }
-            outputHistoryMap.put(executorName, LocalDateTime.now());
+            outputHistoryMap.put(consumerId, LocalDateTime.now());
             return currentValue + count;
         });
     }
 
     public Long getBufferInputCount() { return bufferInputCount.get(); }
-    public void addBufferInputCount(String executorName, Long count) {
+    public void addBufferInputCount(String consumerId, Long count) {
         bufferInputCount.updateAndGet(currentValue -> {
             if (currentValue >= Long.MAX_VALUE - count) {
                 return count;
             }
-            bufferInputHistoryMap.put(executorName, LocalDateTime.now());
+            bufferInputHistoryMap.put(consumerId, LocalDateTime.now());
             return currentValue + count;
         });
     }
 
     public Long getBufferOutputCount() { return bufferOutputCount.get(); }
-    public void addBufferOutputCount(String executorName, Long count) {
+    public void addBufferOutputCount(String consumerId, Long count) {
         bufferOutputCount.updateAndGet(currentValue -> {
             if (currentValue >= Long.MAX_VALUE - count) {
                 return count;
             }
-            bufferOutputHistoryMap.put(executorName, LocalDateTime.now());
+            bufferOutputHistoryMap.put(consumerId, LocalDateTime.now());
             return currentValue + count;
         });
     }

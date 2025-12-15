@@ -43,10 +43,10 @@ public class BaseController implements AutoCloseable{
         }
     }
 
-    public void write(String tag, String executorName, String data) throws QueueWriteException {
-        logger.debug("write data: tag={}, executor={}", tag, executorName);
+    public void write(String tag, String producerId, String data) throws QueueWriteException {
+        logger.debug("write data: tag={}, executor={}", tag, producerId);
         try {
-            dataAccess.write(tag, executorName, data);
+            dataAccess.write(tag, producerId, data);
         }catch (QueueException e){
             logger.error("Write failed", e);
             throw new QueueWriteException(e);
@@ -63,20 +63,20 @@ public class BaseController implements AutoCloseable{
         }
     }
 
-    public void writeBulk(String tag, String executorName, List<String> dataList) throws QueueWriteException {
-        logger.debug("write bulk: tag={}, executor={}, size={}", tag, executorName, dataList==null?0:dataList.size());
+    public void writeBulk(String tag, String producerId, List<String> dataList) throws QueueWriteException {
+        logger.debug("write bulk: tag={}, executor={}, size={}", tag, producerId, dataList==null?0:dataList.size());
         try {
-            dataAccess.writeBulk(tag, executorName, dataList);
+            dataAccess.writeBulk(tag, producerId, dataList);
         }catch (QueueException e){
             logger.error("Bulk write failed", e);
             throw new QueueWriteException(e);
         }
     }
 
-    public void writeQueueData(String executorName, List<FileQueueData> dataList) throws QueueWriteException {
-        logger.debug("write queue data: executor={}, size={}", executorName, dataList==null?0:dataList.size());
+    public void writeQueueData(String producerId, List<FileQueueData> dataList) throws QueueWriteException {
+        logger.debug("write queue data: executor={}, size={}", producerId, dataList==null?0:dataList.size());
         try {
-            dataAccess.writeQueueData(executorName, dataList);
+            dataAccess.writeQueueData(producerId, dataList);
         }catch (QueueException e){
             logger.error("Write queue data failed", e);
             throw new QueueWriteException(e);
@@ -93,30 +93,30 @@ public class BaseController implements AutoCloseable{
         }
     }
 
-    public FileQueueData read(String executorName) throws QueueReadException {
-        logger.debug("read executor={}", executorName);
+    public FileQueueData read(String consumerId) throws QueueReadException {
+        logger.debug("read executor={}", consumerId);
         try {
-            return dataAccess.read(executorName);
+            return dataAccess.read(consumerId);
         }catch (QueueException e){
             logger.error("Read failed", e);
             throw new QueueReadException(e);
         }
     }
 
-    public List<FileQueueData> read(String executorName, int requestCount) throws QueueReadException {
-        logger.debug("read executor={} count={}", executorName, requestCount);
+    public List<FileQueueData> read(String consumerId, int requestCount) throws QueueReadException {
+        logger.debug("read executor={} count={}", consumerId, requestCount);
         try {
-            return dataAccess.read(executorName, requestCount);
+            return dataAccess.read(consumerId, requestCount);
         }catch (QueueException e){
             logger.error("Read failed", e);
             throw new QueueReadException(e);
         }
     }
 
-    public void readCommit(String executorName) throws QueueReadException {
-        logger.debug("readCommit executor={}", executorName);
+    public void readCommit(String consumerId) throws QueueReadException {
+        logger.debug("readCommit executor={}", consumerId);
         try {
-            dataAccess.readCommit(executorName);
+            dataAccess.readCommit(consumerId);
         }catch (QueueException e){
             logger.error("ReadCommit failed", e);
             throw new QueueReadException(e);
@@ -149,8 +149,8 @@ public class BaseController implements AutoCloseable{
     }
 
     // 특정 버퍼 정보 가져오는 함수
-    public List<FileQueueData> getBuffer(String executorName) {
-        return dataAccess.getBuffer(executorName);
+    public List<FileQueueData> getBuffer(String consumerId) {
+        return dataAccess.getBuffer(consumerId);
     }
 
     // 캐시 목록 가져 오는 함수
@@ -181,9 +181,9 @@ public class BaseController implements AutoCloseable{
     }
 
     // 특정 버퍼 정보 삭제 함수
-    public void clearBuffer(String executorName) {
-        logger.debug("clear buffer executor={}", executorName);
-        dataAccess.clearBuffer(executorName);
+    public void clearBuffer(String consumerId) {
+        logger.debug("clear buffer executor={}", consumerId);
+        dataAccess.clearBuffer(consumerId);
     }
 
     // 모든 캐시 정보 삭제 함수
@@ -199,9 +199,9 @@ public class BaseController implements AutoCloseable{
     }
 
     // 데이터 또는 버퍼에서 한 건 삭제
-    public void removeOne(String executorName) {
-        logger.debug("remove one executor={}", executorName);
-        dataAccess.removeOne(executorName);
+    public void removeOne(String consumerId) {
+        logger.debug("remove one executor={}", consumerId);
+        dataAccess.removeOne(consumerId);
     }
 
     @Override
