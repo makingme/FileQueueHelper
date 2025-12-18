@@ -1,8 +1,10 @@
 package com.queue.file.exception;
 
-public class QueueReadException extends QueueException{
+public class QueueReadException extends QueueException {
+    private static final String DEFAULT_MESSAGE = "Queue read failed";
+
     public QueueReadException() {
-        super("큐 읽기 중 에러 발생");
+        super(DEFAULT_MESSAGE);
     }
 
     public QueueReadException(String message) {
@@ -10,10 +12,18 @@ public class QueueReadException extends QueueException{
     }
 
     public QueueReadException(Throwable cause) {
-        super("큐 읽기 중 에러 발생", cause);
+        super(DEFAULT_MESSAGE, cause);
     }
 
     public QueueReadException(String message, Throwable cause) {
         super(message, cause);
+    }
+
+    public QueueReadException(String queueName, String detail) {
+        super(queueName, "read", detail);
+    }
+
+    public QueueReadException(String queueName, String detail, Throwable cause) {
+        super(queueName, "read", detail, cause);
     }
 }

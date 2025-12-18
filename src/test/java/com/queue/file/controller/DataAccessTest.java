@@ -15,9 +15,10 @@ import static org.junit.Assert.*;
 /**
  * v3.0.0: Updated for single queue (partition concept removed)
  */
-public class DataAccessTest {
+    public class DataAccessTest {
 
     @Test
+    // 단일 write 후 read/commit 흐름 검증
     public void testWriteAndRead() throws Exception {
         Path file = Files.createTempFile("queue", ".mv");
         FileQueueConfigVo config = new FileQueueConfigVo(file.getParent().toString(), file.getFileName().toString());
@@ -38,6 +39,7 @@ public class DataAccessTest {
     }
 
     @Test
+    // bulk write 후 다건 read/commit 흐름 검증
     public void testWriteBulkReadBulk() throws Exception {
         Path file = Files.createTempFile("queue", ".mv");
         FileQueueConfigVo config = new FileQueueConfigVo(file.getParent().toString(), file.getFileName().toString());

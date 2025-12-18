@@ -109,7 +109,7 @@ public class ControllerFactory {
                 storeInfo.setStore(queueStore);
             } catch (Exception e) {
                 logger.error("queueStore open failed", e);
-                throw new InitializeException("큐 오픈 실패: 큐=[" + configVo.getQueueName() + "], 에러=[" + e.getMessage() + "]", e);
+                throw new InitializeException(configVo.getQueueName(), "open queue store failed: " + e.getMessage(), e);
             }
         }
 
@@ -119,10 +119,10 @@ public class ControllerFactory {
             try {
                 MVStore cacheStore = createMVStore(configVo, cachePath, customConfigVo);
                 storeInfo.setCacheStore(cacheStore);
-                logger.info("캐시 파일 생성: {}", cachePath);
+                logger.info("cache file created: {}", cachePath);
             } catch (Exception e) {
                 logger.error("cacheStore open failed", e);
-                throw new InitializeException("캐시 스토어 오픈 실패: 큐=[" + configVo.getQueueName() + "], 에러=[" + e.getMessage() + "]", e);
+                throw new InitializeException(configVo.getQueueName(), "open cache store failed: " + e.getMessage(), e);
             }
         }
     }
@@ -157,23 +157,23 @@ public class ControllerFactory {
         FileQueueConfigVo config = storeInfo.getCONFIG();
         String queue = config.getQueue();
         if (queue == null || queue.trim().isEmpty()) {
-            throw new InitializeException("큐 활성화 실패: 큐 정보 누락 = 큐:[" + queue + "]");
+            throw new InitializeException(config.getQueueName(), "queue path+name is required");
         }
         String queueName = config.getQueueName();
         if (queueName == null || queueName.trim().isEmpty()) {
-            throw new InitializeException("큐 활성화 실패: 큐 이름 정보 누락 = 큐:[" + queue + "]");
+            throw new InitializeException(queueName, "queue name is required");
         }
         String queuePath = config.getQueuePath();
         if (queuePath == null || queuePath.trim().isEmpty()) {
-            throw new InitializeException("큐 활성화 실패: 큐 경로 정보 누락 = 큐:[" + queue + "]");
+            throw new InitializeException(queueName, "queue path is required");
         }
         Path p = Paths.get(queuePath);
         if (!Files.exists(p)) {
-            throw new InitializeException("큐 활성화 실패: 존재하지 않은 경로 = 경로 정보:[" + queuePath + "]");
+            throw new InitializeException(queueName, "queue path does not exist: " + queuePath);
         }
 
         if(!Files.isWritable(p)){
-            throw new InitializeException("큐 활성화 실패: 지정 파일이 쓰기 가능 상태가 아님 = 경로 정보:[" + queuePath + "]");
+            throw new InitializeException(queueName, "queue path not writable: " + queuePath);
         }
 
         if (Files.exists(Paths.get(queue))) {
@@ -205,10 +205,10 @@ public class ControllerFactory {
             int threshold = (int) (MAX_CHUNK_ID * CHUNK_ID_THRESHOLD_RATIO);
             if (lastChunkId >= threshold) {
                 String msg = String.format("lastChunkId [%d] approaching MAX_ID [%d].", lastChunkId, MAX_CHUNK_ID);
-                logger.warn("⚠ {}", msg);
+                logger.warn("* {}", msg);
                 // 3이하 버전에서는 동작 이슈 발생 lastChunkId MAX 값 도달 시
                 if(writeFormatVersion < 3 ){
-                    throw new InitializeException(msg);
+                    throw new InitializeException(filePath, msg);
                 }
             } else {
                 logger.info("✓ lastChunkId OK: {}", lastChunkId);
@@ -216,10 +216,10 @@ public class ControllerFactory {
 
             // 3. unsaved changes 확인 및 대응
             if (store.hasUnsavedChanges()) {
-                logger.warn("⚠ Store has unsaved changes. Consider rollback or recovery. Executing rollback...");
+                logger.warn("* Store has unsaved changes. Consider rollback or recovery. Executing rollback...");
                 store.rollback();
                 if (store.hasUnsavedChanges()) {
-                    throw new InitializeException("Rollback failed. Store remains dirty.");
+                    throw new InitializeException(filePath, "Rollback failed. Store remains dirty.");
                 } else {
                     logger.info("✓ Rollback completed. Store is now clean.");
                 }
@@ -235,10 +235,10 @@ public class ControllerFactory {
 
         } catch (MVStoreException e) {
             logger.error("❌ Failed to open MVStore. Possibly due to unsupported format or file corruption: {}", e.getMessage());
-            throw new InitializeException(e.getMessage(), e);
+            throw new InitializeException(filePath, "MVStore open failed: " + e.getMessage(), e);
         } catch (Exception e) {
             logger.error("❌ Unexpected error during MVStore health check", e);
-            throw new InitializeException(e.getMessage(), e);
+            throw new InitializeException(filePath, "Unexpected error during MVStore health check: " + e.getMessage(), e);
         } finally {
             if (store != null) {
                 try{
@@ -259,7 +259,7 @@ public class ControllerFactory {
     private static int getLastChunkIdFromFileStore(MVStore store) throws InitializeException{
         try {
             // 시도 1: H2 2.2.x 이후 버전 (FileStore.lastChunkId)
-            logger.info("⚠ 2.1 Over version. Check fileStore...");
+            logger.info("* 2.1+ version detected. Check fileStore...");
             Field fileStoreField = MVStore.class.getDeclaredField("fileStore");
             fileStoreField.setAccessible(true);
             Object fileStore = fileStoreField.get(store);
@@ -271,16 +271,16 @@ public class ControllerFactory {
                 return lastChunkIdField.getInt(fileStore);
             } catch (NoSuchFieldException e) {
                 // 시도 2: 혹시 모를 older 버전 호환용
-                logger.warn("⚠ Field 'lastChunkId' not found in FileStore. Trying MVStore...");
+                logger.warn("* Field 'lastChunkId' not found in FileStore. Trying MVStore...");
             }
 
         } catch (Exception e) {
-            logger.warn("⚠ Failed to access FileStore from MVStore. Possibly older version. Trying MVStore directly...");
+            logger.warn("* Failed to access FileStore from MVStore. Possibly older version. Trying MVStore directly...");
         }
 
         // 시도 3: MVStore.lastChunkId (1.4 ~ 2.1 시절)
         try {
-            logger.info("⚠ 2.2 Under version. Trying MVStore directly...");
+            logger.info("* 2.2 or lower detected. Trying MVStore directly...");
             Field legacyField = MVStore.class.getDeclaredField("lastChunkId");
             legacyField.setAccessible(true);
             return legacyField.getInt(store);

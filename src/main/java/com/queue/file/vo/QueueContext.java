@@ -15,7 +15,7 @@ public class QueueContext {
     private final ConcurrentSkipListSet<Long> transactionKeyList = new ConcurrentSkipListSet<>();
 
     private MVMap<Long, FileQueueData> dataMap;
-    private MVMap<String, java.util.List<FileQueueData>> readBufferMap;
+    private MVMap<String, BufferEntry> readBufferMap;
     private MVMap<String, FileQueueData> cacheMap;
     private DataSyncInfo syncInfo;
 
@@ -39,11 +39,11 @@ public class QueueContext {
         this.dataMap = dataMap;
     }
 
-    public MVMap<String, java.util.List<FileQueueData>> getReadBufferMap() {
+    public MVMap<String, BufferEntry> getReadBufferMap() {
         return readBufferMap;
     }
 
-    public void setReadBufferMap(MVMap<String, java.util.List<FileQueueData>> readBufferMap) {
+    public void setReadBufferMap(MVMap<String, BufferEntry> readBufferMap) {
         this.readBufferMap = readBufferMap;
     }
 

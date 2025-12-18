@@ -1,9 +1,11 @@
 package com.queue.file.controller;
 
-import com.queue.file.exception.*;
+import com.queue.file.exception.QueueException;
+import com.queue.file.exception.QueueReadException;
+import com.queue.file.exception.QueueWriteException;
+import com.queue.file.exception.UnsteadyStateException;
 import com.queue.file.vo.*;
 import org.h2.mvstore.MVMap;
-import org.h2.mvstore.MVStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,7 +75,7 @@ public class DataAccess {
             MVMap<Long, FileQueueData> dataMap = ctx.getDataMap();
 
             if (dataMap == null || dataMap.isClosed()) {
-                throw new QueueWriteException("데이터 객체가 비정상적인 상태");
+                throw new QueueWriteException(configVo.getQueueName(), "data map is closed or null");
             }
 
             for (FileQueueData queueData : storeDataList) {
@@ -102,8 +104,8 @@ public class DataAccess {
                     e.addSuppressed(e1);
                 }
             }
-            logger.error("writeQueueData failed", e);
-            throw new QueueWriteException("큐 입력 중 예외 발생 = 큐:[" + configVo.getQueueName() + "]", e);
+            logger.error("writeQueueData failed queue={} producer={} size={}", configVo.getQueueName(), producerId, storeDataList.size(), e);
+            throw new QueueWriteException(configVo.getQueueName(), "writeQueueData failed", e);
         }finally {
             writeLock.unlock();
         }
@@ -137,10 +139,11 @@ public class DataAccess {
      */
     public List<FileQueueData> read(String consumerId, int requestCount) throws QueueException {
         logger.debug("read executor={} count={}", consumerId, requestCount);
-        if (storeInfo.getStoreOpenTime() == null) {
-            throw new QueueReadException("open 되지 않음 - open() 호출 필요");
-        }
         FileQueueConfigVo configVo = storeInfo.getCONFIG();
+        final String queueName = configVo.getQueueName();
+        if (storeInfo.getStoreOpenTime() == null) {
+            throw new QueueReadException(queueName, "store not opened; call open() first");
+        }
         FileQueueCustomConfigVo customConfigVo = configVo.getCustomConfig();
         statsTracker.keepRecord(consumerId, ActionType.OUTPUT_INVOKE);
 
@@ -155,7 +158,7 @@ public class DataAccess {
         QueueContext ctx = queueManager.getQueueContext();
         MVMap<Long, FileQueueData> dataMap = ctx.getDataMap();
         if (dataMap == null || dataMap.isClosed()) {
-            throw new QueueReadException("데이터 영역이 비정상적인 상태");
+            throw new QueueReadException(queueName, "data map is closed or null");
         }
 
         ReentrantReadWriteLock.WriteLock writeLock = ctx.getLock().writeLock();
@@ -171,9 +174,9 @@ public class DataAccess {
             List<FileQueueData> queueDataList = extractData(ctx, selectCount);
 
             if (customConfigVo.isStableMode()) {
-                MVMap<String, List<FileQueueData>> readBufferMap = ctx.getReadBufferMap();
+                MVMap<String, BufferEntry> readBufferMap = ctx.getReadBufferMap();
                 if (readBufferMap != null && !readBufferMap.isClosed()) {
-                    readBufferMap.put(consumerId, queueDataList);
+                    readBufferMap.put(consumerId, new BufferEntry(queueDataList, System.currentTimeMillis()));
                     statsTracker.keepRecord(consumerId, ActionType.BUFFER_INPUT);
                 }
             }
@@ -187,8 +190,8 @@ public class DataAccess {
             return queueDataList;
 
         } catch (QueueReadException e) {
-            logger.error("read failed: {}", e.getMessage());
-            throw new QueueReadException("큐:[" + configVo.getQueueName() + "] " + e.getMessage(), e);
+            logger.error("read failed queue={} consumer={} count={}", queueName, consumerId, requestCount, e);
+            throw new QueueReadException(queueName, e.getMessage(), e);
         } catch (Exception e) {
             if (isCommitted) {
                 try {
@@ -197,8 +200,8 @@ public class DataAccess {
                     e.addSuppressed(e1);
                 }
             }
-            logger.error("read failed", e);
-            throw new QueueReadException("<읽기 : 실패> = 큐:[" + configVo.getQueueName() + "]", e);
+            logger.error("read failed queue={} consumer={} count={}", queueName, consumerId, requestCount, e);
+            throw new QueueReadException(queueName, "read failed", e);
         }finally {
             writeLock.unlock();
         }
@@ -226,8 +229,8 @@ public class DataAccess {
             }
             return queueDataList;
         } catch (Exception e) {
-            logger.error("extractData failed", e);
-            throw new QueueReadException("데이터 추출 중 예외 발생", e);
+            logger.error("extractData failed queue={}", storeInfo.getCONFIG().getQueueName(), e);
+            throw new QueueReadException(storeInfo.getCONFIG().getQueueName(), "extract data failed", e);
         }
     }
 
@@ -236,7 +239,7 @@ public class DataAccess {
         logger.debug("readBuffer executor={}", consumerId);
 
         QueueContext ctx = queueManager.getQueueContext();
-        MVMap<String, List<FileQueueData>> readBufferMap = ctx.getReadBufferMap();
+        MVMap<String, BufferEntry> readBufferMap = ctx.getReadBufferMap();
         if (readBufferMap == null || readBufferMap.isClosed()) {
            return null;
         }
@@ -244,23 +247,38 @@ public class DataAccess {
         ReentrantReadWriteLock.ReadLock readLock = ctx.getLock().readLock();
         readLock.lock();
         try {
-            List<FileQueueData> queueDataList = readBufferMap.get(consumerId);
-            return queueDataList;
+            BufferEntry entry = readBufferMap.get(consumerId);
+            if (entry == null) {
+                return null;
+            }
+            FileQueueCustomConfigVo customConfigVo = storeInfo.getCONFIG().getCustomConfig();
+            long ttlMinutes = customConfigVo.getBufferTtlMinutes();
+            long now = System.currentTimeMillis();
+            if (ttlMinutes > 0 && now - entry.getLastAccessEpochMillis() > ttlMinutes * 60_000L) {
+                logger.warn("buffer ttl exceeded queue={} consumer={} size={}",
+                        storeInfo.getCONFIG().getQueueName(),
+                        consumerId,
+                        entry.getData() == null ? 0 : entry.getData().size());
+            }
+            // 갱신된 접근 시각으로 저장(선택)
+            readBufferMap.put(consumerId, entry.touch());
+            return entry.getData();
         } catch (Exception e) {
-            logger.error("readBuffer failed executor={}", consumerId, e);
-            throw new QueueReadException(consumerId + "버퍼 영역 데이터 파싱 중 예외 발생", e);
+            logger.error("readBuffer failed queue={} consumer={}", storeInfo.getCONFIG().getQueueName(), consumerId, e);
+            throw new QueueReadException(storeInfo.getCONFIG().getQueueName(), "buffer read failed for consumer " + consumerId, e);
         } finally {
             readLock.unlock();
         }
     }
 
     public void readCommit(String consumerId) throws QueueException {
+        final String queueName = storeInfo.getCONFIG().getQueueName();
         if (storeInfo.getStoreOpenTime() == null) {
-            throw new QueueReadException("open 되지 않음 - open() 호출 필요");
+            throw new QueueReadException(queueName, "store not opened; call open() first");
         }
 
         QueueContext ctx = queueManager.getQueueContext();
-        MVMap<String, List<FileQueueData>> readBufferMap = ctx.getReadBufferMap();
+        MVMap<String, BufferEntry> readBufferMap = ctx.getReadBufferMap();
         if (readBufferMap == null || readBufferMap.isClosed()) {
             return;
         }
@@ -272,8 +290,8 @@ public class DataAccess {
             readBufferMap.remove(consumerId);
             statsTracker.keepRecord(consumerId, ActionType.BUFFER_OUTPUT);
         } catch (Exception e) {
-            logger.error("readCommit failed", e);
-            throw new QueueReadException("[" + storeInfo.getCONFIG().getQueueName() + "] 큐, 버퍼 COMMIT 실패", e);
+            logger.error("readCommit failed queue={} consumer={}", queueName, consumerId, e);
+            throw new QueueReadException(queueName, "buffer commit failed for consumer " + consumerId, e);
         } finally {
             writeLock.unlock();
         }
@@ -319,7 +337,12 @@ public class DataAccess {
             if (ctx.getReadBufferMap() == null) {
                 return Collections.emptyMap();
             }
-            return new HashMap<>(ctx.getReadBufferMap());
+            Map<String, List<FileQueueData>> result = new HashMap<>();
+            for (Map.Entry<String, BufferEntry> entry : ctx.getReadBufferMap().entrySet()) {
+                List<FileQueueData> data = entry.getValue() == null ? null : entry.getValue().getData();
+                result.put(entry.getKey(), data == null ? Collections.emptyList() : new ArrayList<>(data));
+            }
+            return result;
         } finally {
             ctx.getLock().readLock().unlock();
         }
@@ -387,11 +410,12 @@ public class DataAccess {
         QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().readLock().lock();
         try {
-            Map<String, List<FileQueueData>> map = ctx.getReadBufferMap();
+            MVMap<String, BufferEntry> map = ctx.getReadBufferMap();
             if (map == null) {
                 return Collections.emptyList();
             }
-            List<FileQueueData> list = map.get(consumerId);
+            BufferEntry entry = map.get(consumerId);
+            List<FileQueueData> list = entry == null ? null : entry.getData();
             return list == null ? Collections.emptyList() : new ArrayList<>(list);
         } finally {
             ctx.getLock().readLock().unlock();
@@ -466,7 +490,7 @@ public class DataAccess {
         QueueContext ctx = queueManager.getQueueContext();
         ctx.getLock().writeLock().lock();
         try {
-            MVMap<String, List<FileQueueData>> bufferMap = ctx.getReadBufferMap();
+            MVMap<String, BufferEntry> bufferMap = ctx.getReadBufferMap();
             if (bufferMap != null && bufferMap.containsKey(consumerId)) {
                 bufferMap.remove(consumerId);
                 return;

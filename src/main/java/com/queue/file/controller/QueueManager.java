@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -23,6 +24,10 @@ public class QueueManager {
     private static final Logger logger = LoggerFactory.getLogger(QueueManager.class);
     private final StoreInfo storeInfo;
     private final QueueContext queueContext;
+
+    private String queueName() {
+        return storeInfo.getCONFIG().getQueueName();
+    }
 
     // v2.1.0: Performance optimization - realign data key periodically
     private final AtomicInteger operationCount = new AtomicInteger(0);
@@ -38,7 +43,7 @@ public class QueueManager {
         logger.debug("initializeQueue");
         MVStore store = storeInfo.getStore();
         if (store == null || store.isClosed()) {
-            throw new InitializeException("스토어가 초기화되지 않음 또는 닫힘");
+            throw new InitializeException(queueName(), "store is null or closed");
         }
 
         QueueContext context = new QueueContext();
@@ -46,14 +51,15 @@ public class QueueManager {
             context.setDataMap(store.openMap(Contents.DATA_MAP_NAME));
             context.setReadBufferMap(store.openMap(Contents.READ_BUFFER_NAME));
             context.setCacheMap(store.openMap(Contents.CACHE_NAME));
+            cleanExpiredBufferEntries(context);
         } catch (Exception e) {
-            throw new InitializeException("큐 데이터 오픈 중 예외 발생: " + e.getMessage());
+            throw new InitializeException(queueName(), "queue map open failed: " + e.getMessage());
         }
 
         try {
             realignDataKey(context);
         } catch (UnsteadyStateException e) {
-            throw new InitializeException("큐 초기화 중 데이터 정렬 실패: " + e.getMessage(), e);
+            throw new InitializeException(queueName(), "realign data key failed: " + e.getMessage(), e);
         }
 
         return context;
@@ -86,8 +92,8 @@ public class QueueManager {
         ConcurrentSkipListSet<Long> dataKeyList = ctx.getTransactionKeyList();
         MVMap<Long, FileQueueData> dataMap = ctx.getDataMap();
 
-        if(dataMap == null) {
-            throw new UnsteadyStateException("데이터 영역이 존재하지 않음");
+        if (dataMap == null) {
+            throw new UnsteadyStateException(queueName(), "data map is null");
         }
 
         int dataCount = dataMap.size();
@@ -105,16 +111,42 @@ public class QueueManager {
         }
     }
 
+    private void cleanExpiredBufferEntries(QueueContext context) {
+        MVMap<String, BufferEntry> readBufferMap = context.getReadBufferMap();
+        if (readBufferMap == null || readBufferMap.isClosed()) {
+            return;
+        }
+        FileQueueCustomConfigVo customConfigVo = storeInfo.getCONFIG().getCustomConfig();
+        long ttlMinutes = customConfigVo.getBufferTtlMinutes();
+        if (ttlMinutes <= 0) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, BufferEntry> entry : readBufferMap.entrySet()) {
+            BufferEntry value = entry.getValue();
+            if (value == null) {
+                continue;
+            }
+            if (now - value.getLastAccessEpochMillis() > ttlMinutes * 60_000L) {
+                logger.warn("buffer expired on init queue={} consumer={} size={}",
+                        storeInfo.getCONFIG().getQueueName(),
+                        entry.getKey(),
+                        value.getData() == null ? 0 : value.getData().size());
+                readBufferMap.remove(entry.getKey());
+            }
+        }
+    }
+
     public void checkState() throws UnsteadyStateException {
         logger.debug("checkState");
         checkStore();
         MVMap<Long, FileQueueData> dataMap = queueContext.getDataMap();
         if (dataMap == null || dataMap.isClosed()) {
-            throw new UnsteadyStateException("데이터 영역이 유효하지 않은 상태");
+            throw new UnsteadyStateException(queueName(), "data map is invalid or closed");
         }
-        MVMap<String, java.util.List<FileQueueData>> readBufferMap = queueContext.getReadBufferMap();
+        MVMap<String, BufferEntry> readBufferMap = queueContext.getReadBufferMap();
         if (readBufferMap == null || readBufferMap.isClosed()) {
-            throw new UnsteadyStateException("Read Buffer 영역이 유효하지 않은 상태");
+            throw new UnsteadyStateException(queueName(), "read buffer map is invalid or closed");
         }
     }
 
@@ -122,10 +154,10 @@ public class QueueManager {
         logger.debug("checkStore");
         MVStore store = storeInfo.getStore();
         if (store == null || store.isClosed()) {
-            throw new UnsteadyStateException(storeInfo.getCONFIG().getQueueName() + " 파일큐가 유효하지 않은 상태");
+            throw new UnsteadyStateException(queueName(), "store is invalid or closed");
         }
         if (!Files.exists(Paths.get(storeInfo.getCONFIG().getQueue()))) {
-            throw new UnsteadyStateException(storeInfo.getCONFIG().getQueue() + " 파일큐를 찾을 수 없음 - 삭제됨");
+            throw new UnsteadyStateException(queueName(), "store file missing: " + storeInfo.getCONFIG().getQueue());
         }
     }
 

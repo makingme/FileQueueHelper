@@ -17,6 +17,7 @@ import static org.junit.Assert.*;
 public class BaseControllerTest {
 
     @Test
+    // 단일 컨트롤러에서 write/read/commit 후 요약 정보가 맞는지 검증
     public void testWriteReadAndSummary() throws Exception {
         Path file = Files.createTempFile("queue", ".mv");
         FileQueueConfigVo config = new FileQueueConfigVo(file.getParent().toString(), file.getFileName().toString());

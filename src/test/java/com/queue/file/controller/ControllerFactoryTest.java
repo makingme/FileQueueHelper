@@ -36,6 +36,7 @@ public class ControllerFactoryTest {
     }
 
     @Test
+    // 기본 모드 컨트롤러 생성 후 단일 IO 동작 검증
     public void testCreateAndBasicIO() throws Exception {
         Path dir = Files.createTempDirectory("qtest");
         String queue = dir.resolve("t.mv").toString();
@@ -55,6 +56,7 @@ public class ControllerFactoryTest {
     }
 
     @Test
+    // Stable 모드에서 버퍼 격리/커밋 동작 검증
     public void testStableModeBuffer() throws Exception {
         Path dir = Files.createTempDirectory("stable");
         String queue = dir.resolve("s.mv").toString();
@@ -76,6 +78,7 @@ public class ControllerFactoryTest {
     }
 
     @Test(expected = InitializeException.class)
+    // 존재하지 않는 경로 생성 시 InitializeException 발생 검증
     public void testCreateInvalidPath() {
         try(BaseController controller = ControllerFactory.create("/not/exist/path/queue.mv")){
             controller.getSummaryInfo();
@@ -83,6 +86,7 @@ public class ControllerFactoryTest {
     }
 
     @Test
+    // Bulk 설정 적용 여부 및 bulk read/write 검증
     public void testBulkCommitConfig() throws Exception {
         Path dir = Files.createTempDirectory("bulk");
         String queue = dir.resolve("b.mv").toString();
@@ -105,6 +109,7 @@ public class ControllerFactoryTest {
     }
 
     @Test
+    // checkStore 호출이 정상 동작하는지 검증
     public void testCheckStore() throws Exception {
         Path dir = Files.createTempDirectory("check");
         String queue = dir.resolve("c.mv").toString();

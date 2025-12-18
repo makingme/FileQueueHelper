@@ -39,7 +39,7 @@ public class BaseController implements AutoCloseable{
             dataAccess.write("", Thread.currentThread().getName(), data);
         }catch (QueueException e){
             logger.error("Write failed", e);
-            throw new QueueWriteException(e);
+            throw new QueueWriteException(storeInfo.getCONFIG().getQueueName(), "write failed", e);
         }
     }
 
@@ -49,7 +49,7 @@ public class BaseController implements AutoCloseable{
             dataAccess.write(tag, producerId, data);
         }catch (QueueException e){
             logger.error("Write failed", e);
-            throw new QueueWriteException(e);
+            throw new QueueWriteException(storeInfo.getCONFIG().getQueueName(), "write failed", e);
         }
     }
 
@@ -59,7 +59,7 @@ public class BaseController implements AutoCloseable{
             dataAccess.writeBulk("", Thread.currentThread().getName(), dataList);
         }catch (QueueException e){
             logger.error("Bulk write failed", e);
-            throw new QueueWriteException(e);
+            throw new QueueWriteException(storeInfo.getCONFIG().getQueueName(), "bulk write failed", e);
         }
     }
 
@@ -69,7 +69,7 @@ public class BaseController implements AutoCloseable{
             dataAccess.writeBulk(tag, producerId, dataList);
         }catch (QueueException e){
             logger.error("Bulk write failed", e);
-            throw new QueueWriteException(e);
+            throw new QueueWriteException(storeInfo.getCONFIG().getQueueName(), "bulk write failed", e);
         }
     }
 
@@ -79,7 +79,7 @@ public class BaseController implements AutoCloseable{
             dataAccess.writeQueueData(producerId, dataList);
         }catch (QueueException e){
             logger.error("Write queue data failed", e);
-            throw new QueueWriteException(e);
+            throw new QueueWriteException(storeInfo.getCONFIG().getQueueName(), "write queue data failed", e);
         }
     }
 
@@ -89,7 +89,7 @@ public class BaseController implements AutoCloseable{
             return dataAccess.read(Thread.currentThread().getName());
         }catch (QueueException e){
             logger.error("Read failed", e);
-            throw new QueueReadException(e);
+            throw new QueueReadException(storeInfo.getCONFIG().getQueueName(), "read failed", e);
         }
     }
 
@@ -99,7 +99,7 @@ public class BaseController implements AutoCloseable{
             return dataAccess.read(consumerId);
         }catch (QueueException e){
             logger.error("Read failed", e);
-            throw new QueueReadException(e);
+            throw new QueueReadException(storeInfo.getCONFIG().getQueueName(), "read failed", e);
         }
     }
 
@@ -109,7 +109,7 @@ public class BaseController implements AutoCloseable{
             return dataAccess.read(consumerId, requestCount);
         }catch (QueueException e){
             logger.error("Read failed", e);
-            throw new QueueReadException(e);
+            throw new QueueReadException(storeInfo.getCONFIG().getQueueName(), "read failed", e);
         }
     }
 
@@ -119,7 +119,7 @@ public class BaseController implements AutoCloseable{
             dataAccess.readCommit(consumerId);
         }catch (QueueException e){
             logger.error("ReadCommit failed", e);
-            throw new QueueReadException(e);
+            throw new QueueReadException(storeInfo.getCONFIG().getQueueName(), "readCommit failed", e);
         }
     }
 
