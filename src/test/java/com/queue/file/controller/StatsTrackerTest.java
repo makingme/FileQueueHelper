@@ -1,22 +1,22 @@
 package com.queue.file.controller;
 
-import com.queue.file.vo.*;
-import org.h2.mvstore.MVStore;
+import com.queue.file.vo.ActionType;
+import com.queue.file.vo.FileQueueData;
+import com.queue.file.vo.InOutStorage;
+import com.queue.file.vo.StoreInfo;
 import org.junit.Test;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
 
 import static org.junit.Assert.*;
 
 /**
  * v3.0.0: Updated for single queue (partition concept removed)
  */
-    public class StatsTrackerTest {
+public class StatsTrackerTest {
 
     @Test
-    // 액션별 카운트가 누적/집계되는지 검증
+    // 테스트 목적: testKeepRecordCounts 동작 확인
     public void testKeepRecordCounts() {
         StatsTracker tracker = new StatsTracker();
         String exec = "EXEC";
@@ -37,13 +37,10 @@ import static org.junit.Assert.*;
     }
 
     @Test
-    // DataAccess 간단 흐름에서 StatsTracker 연동 여부 검증
+    // 테스트 목적: testDataAccessSimpleFlow 동작 확인
     public void testDataAccessSimpleFlow() throws Exception {
-        Path dummyFile = Files.createTempFile("queue", ".mv");
-        FileQueueConfigVo config = new FileQueueConfigVo(dummyFile.getParent().toString(), dummyFile.getFileName().toString());
-        StoreInfo storeInfo = new StoreInfo(config);
-        storeInfo.setStore(new MVStore.Builder().open());
-        storeInfo.setStoreOpenTime(LocalDateTime.now());
+        Path dummyFile = TestSupport.createTempFile("queue", ".mv");
+        StoreInfo storeInfo = TestSupport.newStoreInfo(dummyFile);
         QueueManager qm = new QueueManager(storeInfo);
         DataAccess da = new DataAccess(storeInfo, qm);
 
@@ -54,7 +51,7 @@ import static org.junit.Assert.*;
         assertEquals("data1", data.getData());
         da.readCommit(exec);
 
-        Files.deleteIfExists(dummyFile);
+        TestSupport.deleteIfExists(dummyFile);
     }
 }
 

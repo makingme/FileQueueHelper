@@ -1,12 +1,11 @@
 package com.queue.file.controller;
 
-import com.queue.file.vo.*;
-import org.h2.mvstore.MVStore;
+import com.queue.file.vo.FileQueueData;
+import com.queue.file.vo.QueueSummaryVo;
+import com.queue.file.vo.StoreInfo;
 import org.junit.Test;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.Assert.*;
@@ -17,37 +16,34 @@ import static org.junit.Assert.*;
 public class BaseControllerTest {
 
     @Test
-    // 단일 컨트롤러에서 write/read/commit 후 요약 정보가 맞는지 검증
+    // 테스트 목적: testWriteReadAndSummary 동작 확인
     public void testWriteReadAndSummary() throws Exception {
-        Path file = Files.createTempFile("queue", ".mv");
-        FileQueueConfigVo config = new FileQueueConfigVo(file.getParent().toString(), file.getFileName().toString());
-        StoreInfo storeInfo = new StoreInfo(config);
-        storeInfo.setStore(new MVStore.Builder().open());
-        storeInfo.setStoreOpenTime(LocalDateTime.now());
+        Path file = TestSupport.createTempFile("queue", ".mv");
+        StoreInfo storeInfo = TestSupport.newStoreInfo(file);
 
         BaseController controller = new BaseController(storeInfo);
 
-        // Write and read single data
+        // 데이터 단건 쓰기/읽기
         controller.write("data1");
         FileQueueData read = controller.read();
         assertNotNull(read);
         assertEquals("data1", read.getData());
         controller.readCommit(Thread.currentThread().getName());
 
-        // Check data is empty after commit
+        // 커밋 후 데이터 비움 확인
         List<FileQueueData> dataList = controller.getDataList();
         assertTrue(dataList.isEmpty());
 
-        // Write more data
+        // 추가 데이터 쓰기
         controller.write("data2");
         controller.write("data3");
 
-        // Check summary
+        // 요약 정보 확인
         QueueSummaryVo summary = controller.getSummaryInfo();
         assertEquals(2, summary.getDataCount());
 
         controller.close();
         assertTrue(storeInfo.getStore().isClosed());
-        Files.deleteIfExists(file);
+        TestSupport.deleteIfExists(file);
     }
 }
